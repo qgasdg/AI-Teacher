@@ -1,0 +1,51 @@
+# 환경 변수 (절대 커밋 금지)
+.env
+.env.local
+.env.*.local
+.env.production
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+venv/
+.venv/
+*.egg-info/
+dist/
+build/
+
+# 업로드된 오디오 파일
+**/uploads/
+
+# SQLite DB
+**/*.db
+
+# 로그 파일
+*.log
+
+# Node.js
+node_modules/
+.next/
+out/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# TypeScript 빌드 캐시
+tsconfig.tsbuildinfo
+
+# Claude Code
+.claude/
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo

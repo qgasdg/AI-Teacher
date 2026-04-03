@@ -1,0 +1,288 @@
+"use client";
+
+import { useState, useRef, useEffect, useCallback } from "react";
+import SessionForm from "@/components/SessionForm";
+import VoiceSession from "@/components/VoiceSession";
+import SessionSummary from "@/components/SessionSummary";
+import { startWebRTC, type TranscriptEntry, type WebRTCSession } from "@/lib/webrtc";
+
+const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
+
+type PageState = "form" | "connecting" | "conversation" | "ending" | "done" | "error";
+
+const NUDGE_TIMEOUT_MS = 30_000; // 30초 후 독려
+
+export default function StudentPage() {
+  const [pageState, setPageState] = useState<PageState>("form");
+  const [sessionId, setSessionId] = useState<number | null>(null);
+  const [studentName, setStudentName] = useState("");
+  const [subject, setSubject] = useState("");
+  const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
+  const [summary, setSummary] = useState("");
+  const [errorMsg, setErrorMsg] = useState("");
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [isRecording, setIsRecording] = useState(false);
+  const [aiSpeaking, setAiSpeaking] = useState(false);
+
+  const webrtcRef = useRef<WebRTCSession | null>(null);
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const nudgeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // 경과 타이머
+  useEffect(() => {
+    if (pageState === "conversation") {
+      timerRef.current = setInterval(() => {
+        setElapsedSeconds((prev) => prev + 1);
+      }, 1000);
+    }
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current);
+    };
+  }, [pageState]);
+
+  // 독려 타이머: AI가 말 끝낸 후 30초 동안 학생 반응 없으면 독려
+  const resetNudgeTimer = useCallback(() => {
+    if (nudgeTimerRef.current) clearTimeout(nudgeTimerRef.current);
+    nudgeTimerRef.current = null;
+  }, []);
+
+  const startNudgeTimer = useCallback(() => {
+    resetNudgeTimer();
+    nudgeTimerRef.current = setTimeout(() => {
+      if (webrtcRef.current) {
+        webrtcRef.current.nudgeStudent();
+      }
+    }, NUDGE_TIMEOUT_MS);
+  }, [resetNudgeTimer]);
+
+  // AI 말하기 상태 변경 처리
+  const handleAiSpeakingChange = useCallback((speaking: boolean) => {
+    setAiSpeaking(speaking);
+    if (!speaking) {
+      // AI가 말 끝남 → 독려 타이머 시작
+      startNudgeTimer();
+    } else {
+      // AI가 말하는 중 → 독려 타이머 리셋
+      resetNudgeTimer();
+    }
+  }, [startNudgeTimer, resetNudgeTimer]);
+
+  // PTT 토글
+  const handleToggleRecording = useCallback(() => {
+    if (!webrtcRef.current) return;
+
+    if (isRecording) {
+      // 녹음 종료 → 마이크 off + 오디오 커밋 + AI 응답 요청
+      webrtcRef.current.setMicEnabled(false);
+      webrtcRef.current.commitAudioAndRespond();
+      setIsRecording(false);
+      resetNudgeTimer();
+    } else {
+      // 녹음 시작 → 마이크 on
+      webrtcRef.current.setMicEnabled(true);
+      setIsRecording(true);
+      resetNudgeTimer(); // 말하는 중이니 독려 타이머 리셋
+    }
+  }, [isRecording, resetNudgeTimer]);
+
+  // 대화 시작
+  const handleStart = useCallback(async (name: string, subj: string) => {
+    setStudentName(name);
+    setSubject(subj);
+    setTranscript([]);
+    setElapsedSeconds(0);
+    setIsRecording(false);
+    setAiSpeaking(false);
+    setPageState("connecting");
+
+    try {
+      // 1. 세션 생성
+      const sessionRes = await fetch(`${API}/sessions/`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ student_name: name, subject: subj }),
+      });
+
+      if (!sessionRes.ok) throw new Error("세션 생성 실패");
+      const sessionData = await sessionRes.json();
+      setSessionId(sessionData.id);
+
+      // 2. 임시 키 발급
+      const tokenRes = await fetch(`${API}/api/session/token`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ session_id: sessionData.id }),
+      });
+
+      if (!tokenRes.ok) throw new Error("임시 키 발급 실패");
+      const tokenData = await tokenRes.json();
+
+      // 3. WebRTC 연결
+      const session = await startWebRTC(tokenData.client_secret, {
+        onConnected: () => setPageState("conversation"),
+        onTranscript: (entry) => setTranscript((prev) => [...prev, entry]),
+        onError: (error) => {
+          setErrorMsg(error);
+          setPageState("error");
+        },
+        onDisconnected: () => {
+          // 의도적 종료가 아닌 경우만 처리
+        },
+        onAiSpeakingChange: handleAiSpeakingChange,
+      });
+
+      webrtcRef.current = session;
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : "연결에 실패했습니다");
+      setPageState("error");
+    }
+  }, [handleAiSpeakingChange]);
+
+  // 대화 종료
+  const handleEnd = useCallback(async () => {
+    resetNudgeTimer();
+
+    // WebRTC 연결 종료
+    if (webrtcRef.current) {
+      webrtcRef.current.disconnect();
+      webrtcRef.current = null;
+    }
+
+    if (!sessionId) return;
+    setPageState("ending");
+
+    // 트랜스크립트를 텍스트로 변환
+    const transcriptText = transcript
+      .map((e) => `${e.role === "user" ? "학생" : "AI 선생님"}: ${e.text}`)
+      .join("\n");
+
+    try {
+      // 세션 종료 + 트랜스크립트 전송
+      await fetch(`${API}/sessions/${sessionId}/end`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          transcript: transcriptText,
+          duration_seconds: elapsedSeconds,
+        }),
+      });
+
+      // 요약 생성 완료 대기 (폴링)
+      const maxAttempts = 60;
+      for (let i = 0; i < maxAttempts; i++) {
+        await new Promise((r) => setTimeout(r, 2000));
+        const res = await fetch(`${API}/sessions/${sessionId}`);
+        const data = await res.json();
+
+        if (data.status === "completed") {
+          setSummary(data.summary);
+          setPageState("done");
+          return;
+        }
+        if (data.status === "failed") {
+          setErrorMsg(data.summary || "요약 생성에 실패했습니다");
+          setPageState("error");
+          return;
+        }
+      }
+
+      setErrorMsg("요약 생성 시간이 초과되었습니다");
+      setPageState("error");
+    } catch {
+      setErrorMsg("세션 종료 중 오류가 발생했습니다");
+      setPageState("error");
+    }
+  }, [sessionId, transcript, elapsedSeconds, resetNudgeTimer]);
+
+  // 새 세션
+  const handleNewSession = () => {
+    setPageState("form");
+    setSessionId(null);
+    setTranscript([]);
+    setSummary("");
+    setErrorMsg("");
+    setElapsedSeconds(0);
+    setIsRecording(false);
+    setAiSpeaking(false);
+  };
+
+  return (
+    <div className="max-w-lg mx-auto px-4 py-8">
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+        {/* 제목 */}
+        <h1 className="text-xl font-bold text-gray-800 mb-6">
+          {pageState === "form" && "AI 선생님과 복습하기"}
+          {pageState === "connecting" && "연결 중..."}
+          {pageState === "conversation" && "AI 선생님과 대화 중"}
+          {pageState === "ending" && "요약 생성 중..."}
+          {pageState === "done" && "복습 완료"}
+          {pageState === "error" && "오류 발생"}
+        </h1>
+
+        {/* Form */}
+        {pageState === "form" && (
+          <SessionForm onSubmit={handleStart} loading={false} />
+        )}
+
+        {/* Connecting */}
+        {pageState === "connecting" && (
+          <div className="text-center py-12">
+            <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+            <p className="text-gray-500 text-sm">
+              AI 선생님에게 연결하고 있습니다...
+            </p>
+          </div>
+        )}
+
+        {/* Conversation */}
+        {pageState === "conversation" && (
+          <VoiceSession
+            status="connected"
+            transcript={transcript}
+            elapsedSeconds={elapsedSeconds}
+            isRecording={isRecording}
+            aiSpeaking={aiSpeaking}
+            onEnd={handleEnd}
+            onToggleRecording={handleToggleRecording}
+          />
+        )}
+
+        {/* Ending */}
+        {pageState === "ending" && (
+          <div className="text-center py-12">
+            <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+            <p className="text-gray-500 text-sm">
+              대화 내용을 요약하고 있습니다...
+            </p>
+          </div>
+        )}
+
+        {/* Done */}
+        {pageState === "done" && (
+          <SessionSummary
+            summary={summary}
+            studentName={studentName}
+            subject={subject}
+            duration={elapsedSeconds}
+            onNewSession={handleNewSession}
+          />
+        )}
+
+        {/* Error */}
+        {pageState === "error" && (
+          <div className="space-y-4">
+            <div className="bg-red-50 border border-red-200 rounded-xl p-4">
+              <p className="text-red-700 text-sm">{errorMsg}</p>
+            </div>
+            <button
+              onClick={handleNewSession}
+              className="w-full py-3 bg-gray-600 text-white font-medium rounded-lg hover:bg-gray-700 transition"
+            >
+              다시 시작
+            </button>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
