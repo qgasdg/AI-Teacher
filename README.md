@@ -11,7 +11,7 @@
 | 단계 | 설명 | 상태 |
 |------|------|------|
 | Stage 1 | 녹음 → STT → AI 요약 → 교사 대시보드 | 완료 |
-| Stage 3 | OpenAI Realtime API 기반 실시간 양방향 대화 | 구현 중 |
+| Stage 3 | OpenAI Realtime API 기반 실시간 양방향 대화 (PTT + 독려 타이머) | 구현 중 |
 
 ---
 
@@ -47,12 +47,15 @@ AI-Teacher/
 │   │   │   ├── sessions.py
 │   │   │   └── realtime.py     # WebSocket 실시간 연동
 │   │   └── services/
-│   │       ├── openai_realtime.py
+│   │       ├── openai_realtime.py  # turn_detection: None (서버 VAD 비활성화)
 │   │       └── summarizer.py
 │   └── frontend/               # Next.js 실시간 대화 UI
 │       ├── app/
+│       │   └── page.tsx            # PTT 상태 관리 + 30초 독려 타이머
 │       ├── components/
+│       │   └── VoiceSession.tsx    # PTT 버튼 UI (녹음/대기/AI발화 상태)
 │       └── lib/
+│           └── webrtc.ts           # 마이크 제어 + 오디오 커밋 + 독려 메시지
 │
 ├── SYSTEM_DESIGN.md            # 전체 시스템 설계 및 비용 분석
 └── PROGRESS.md                 # 개발 진행 기록
@@ -110,6 +113,29 @@ cd stage3-realtime/backend
 cd stage3-realtime/frontend
 npm install && npm run dev
 ```
+
+---
+
+## Stage 3 대화 흐름 (PTT 방식)
+
+서버 VAD를 비활성화하고, 학생이 직접 **Push-to-Talk(PTT) 버튼**으로 발화를 제어합니다.
+
+```
+AI 인사 → AI 말 끝남 → [학생 대기]
+                         ├─ 학생이 "말하기" 누름 → 녹음 중 → "말하기 완료" 누름 → AI 응답
+                         └─ 30초 경과 → AI: "자, 이제 좀 생각해본 것 같은데 한번 얘기해볼까?"
+```
+
+### 주요 기능
+
+| 기능 | 설명 |
+|------|------|
+| PTT 버튼 | "말하기" ↔ "말하기 완료" 토글, AI 발화 중 비활성화 (회색) |
+| 녹음 표시 | 녹음 중 주황색 + pulse 애니메이션 |
+| 독려 타이머 | AI 발화 종료 후 30초간 학생 무응답 시 자동 독려 메시지 |
+| 서버 VAD 비활성화 | `turn_detection: None` — AI가 임의로 끼어들지 않음 |
+| 마이크 제어 | 기본 음소거, `setMicEnabled()` / `commitAudioAndRespond()` |
+| AI 발화 감지 | `onAiSpeakingChange` 콜백으로 AI 말하기 시작/종료 감지 |
 
 ---
 
