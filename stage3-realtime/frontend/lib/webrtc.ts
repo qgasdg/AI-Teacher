@@ -146,9 +146,14 @@ export async function startWebRTC(
     if (dc.readyState === "open") {
       dc.send(JSON.stringify({ type: "response.cancel" }));
     }
-    audioEl.pause();
-    audioEl.currentTime = 0;
-    unmuteNow();
+    // pause() 대신 mute로 처리 — MediaStream은 pause하면 이후 재생 불가
+    audioEl.muted = true;
+    unmutePending = true;
+    if (unmuteTimer) clearTimeout(unmuteTimer);
+    unmuteTimer = setTimeout(() => {
+      audioEl.muted = false;
+      unmutePending = false;
+    }, 3000);
   };
 
   // 연결 해제 함수
