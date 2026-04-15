@@ -1,10 +1,42 @@
 # 개발 진행 기록
 
-> 마지막 업데이트: 2026-03-23
+> 마지막 업데이트: 2026-04-16
 
 ---
 
 ## 완료된 작업
+
+### 4. Stage 3 프로덕션 배포 완료 (2026-04-16)
+
+#### 배포 플랫폼
+- **프론트엔드**: Vercel (`https://ai-teacher-indol.vercel.app`)
+- **백엔드**: Railway (`https://ai-teacher-production-d78f.up.railway.app`)
+- **DB**: Railway PostgreSQL (영구 저장, 재배포해도 데이터 유지)
+
+#### 배포 과정 트러블슈팅
+| 문제 | 원인 | 해결 |
+|------|------|------|
+| Vercel 배포 실패 | `next start -p 3001` 포트 하드코딩 | `next start`로 변경 |
+| CORS 400 Bad Request | `allow_origins` 특정 URL → 불일치 | `allow_origins=["*"]`로 변경 |
+| DB 연결 실패 | Railway가 `postgres://` 형식 제공 | `postgres://` → `postgresql+asyncpg://` 변환 추가 |
+| API 키 에러 | Railway 환경변수 붙여넣기 시 줄바꿈 삽입 | 키 재입력 |
+| Greenlet 없음 | venv 재생성 후 누락 | `pip install greenlet` + requirements.txt 추가 |
+
+#### 보안
+- 메인 페이지(`/`)에 비밀번호 게이트 추가 (`NEXT_PUBLIC_ACCESS_PASSWORD`)
+- 교사 대시보드(`/teacher`)도 동일 비밀번호로 보호
+
+#### UX 개선
+- 말하기 버튼 누르면 AI 오디오 즉시 음소거 (녹음 중 AI 소리 차단)
+- 녹음 종료 시 음소거 해제
+- 말하기 버튼으로 AI 응답 중단 가능 (`response.cancel`)
+- 빈 화면 안내 문구 변경: "말하기 버튼을 눌러 선생님께 인사의 말을 건네보세요!"
+
+#### 로컬 개발 환경
+- `stage3-realtime/frontend/.env.local` 설정 완료
+- Windows CMD에서 venv 재생성 방법 확인
+
+---
 
 ### 1. 시스템 설계 문서화 (`SYSTEM_DESIGN.md`)
 - 4단계 구현 로드맵 설계 (Stage 1~4)
