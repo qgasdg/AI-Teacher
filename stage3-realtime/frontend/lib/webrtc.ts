@@ -31,32 +31,8 @@ export async function startWebRTC(
   // AI 음성 출력용 audio element
   const audioEl = document.createElement("audio");
   audioEl.autoplay = true;
-  audioEl.muted = false;
   pc.ontrack = (event) => {
     audioEl.srcObject = event.streams[0];
-  };
-
-  // 학생 텍스트 도착 전까지 AI 음성 대기
-  let unmutePending = false;
-  let unmuteTimer: ReturnType<typeof setTimeout> | null = null;
-
-  const muteUntilTranscript = () => {
-    audioEl.muted = true;
-    unmutePending = true;
-    // 최대 2초 대기 후 강제 해제 (텍스트가 늦게 오면 그냥 재생)
-    unmuteTimer = setTimeout(() => {
-      audioEl.muted = false;
-      unmutePending = false;
-    }, 2000);
-  };
-
-  const unmuteNow = () => {
-    if (unmutePending) {
-      if (unmuteTimer) clearTimeout(unmuteTimer);
-      unmuteTimer = null;
-      audioEl.muted = false;
-      unmutePending = false;
-    }
   };
 
   // 마이크 입력 (기본 음소거)
@@ -78,7 +54,7 @@ export async function startWebRTC(
   dc.onmessage = (event) => {
     try {
       const msg = JSON.parse(event.data);
-      handleEvent(msg, callbacks, () => assistantBuffer, (v) => { assistantBuffer = v; }, unmuteNow);
+      handleEvent(msg, callbacks, () => assistantBuffer, (v) => { assistantBuffer = v; });
     } catch {
       // 파싱 실패 무시
     }
@@ -117,7 +93,6 @@ export async function startWebRTC(
   // PTT: 녹음 끝 → 오디오 버퍼 커밋 + AI 응답 요청
   const commitAudioAndRespond = () => {
     if (dc.readyState === "open") {
-      muteUntilTranscript();
       dc.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
       dc.send(JSON.stringify({ type: "response.create" }));
     }
@@ -146,14 +121,6 @@ export async function startWebRTC(
     if (dc.readyState === "open") {
       dc.send(JSON.stringify({ type: "response.cancel" }));
     }
-    // pause() 대신 mute로 처리 — MediaStream은 pause하면 이후 재생 불가
-    audioEl.muted = true;
-    unmutePending = true;
-    if (unmuteTimer) clearTimeout(unmuteTimer);
-    unmuteTimer = setTimeout(() => {
-      audioEl.muted = false;
-      unmutePending = false;
-    }, 3000);
   };
 
   // 연결 해제 함수
@@ -171,8 +138,7 @@ function handleEvent(
   msg: Record<string, unknown>,
   callbacks: WebRTCCallbacks,
   getBuffer: () => string,
-  setBuffer: (v: string) => void,
-  unmuteNow: () => void
+  setBuffer: (v: string) => void
 ) {
   const type = msg.type as string;
 
@@ -183,7 +149,6 @@ function handleEvent(
       if (text?.trim()) {
         callbacks.onTranscript({ role: "user", text: text.trim() });
       }
-      unmuteNow(); // 학생 텍스트 도착 → AI 음성 재생 시작
       break;
     }
 
@@ -213,7 +178,7 @@ function handleEvent(
     // 에러
     case "error": {
       const error = msg.error as { message?: string; code?: string } | undefined;
-      // 취소할 응답이 없는 경우는 무시 (이미 말이 끝난 후 버튼 누를 때 발생)
+      // 취소할 응답이 없는 경우는 무시
       if (error?.message?.includes("no active response")) break;
       callbacks.onError(error?.message || "알 수 없는 오류가 발생했습니다");
       break;
