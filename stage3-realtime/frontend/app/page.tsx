@@ -7,12 +7,59 @@ import SessionSummary from "@/components/SessionSummary";
 import { startWebRTC, type TranscriptEntry, type WebRTCSession } from "@/lib/webrtc";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
+const ACCESS_PASSWORD = process.env.NEXT_PUBLIC_ACCESS_PASSWORD || "";
+const ACCESS_AUTH_KEY = "access_authed";
 
 type PageState = "form" | "connecting" | "conversation" | "ending" | "done" | "error";
 
 const NUDGE_TIMEOUT_MS = 30_000; // 30초 후 독려
 
+function AccessGate({ onAuth }: { onAuth: () => void }) {
+  const [input, setInput] = useState("");
+  const [error, setError] = useState(false);
+
+  const handleSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (input === ACCESS_PASSWORD) {
+      sessionStorage.setItem(ACCESS_AUTH_KEY, "1");
+      onAuth();
+    } else {
+      setError(true);
+      setInput("");
+    }
+  };
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <form
+        onSubmit={handleSubmit}
+        className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 w-full max-w-sm space-y-4"
+      >
+        <h1 className="text-lg font-bold text-gray-800 text-center">AI 선생님</h1>
+        <input
+          type="password"
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          placeholder="비밀번호를 입력하세요"
+          className="w-full border border-gray-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+          autoFocus
+        />
+        {error && (
+          <p className="text-red-500 text-xs">비밀번호가 올바르지 않습니다.</p>
+        )}
+        <button
+          type="submit"
+          className="w-full py-2.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition"
+        >
+          확인
+        </button>
+      </form>
+    </div>
+  );
+}
+
 export default function StudentPage() {
+  const [authed, setAuthed] = useState(false);
   const [pageState, setPageState] = useState<PageState>("form");
   const [sessionId, setSessionId] = useState<number | null>(null);
   const [studentName, setStudentName] = useState("");
@@ -27,6 +74,12 @@ export default function StudentPage() {
   const webrtcRef = useRef<WebRTCSession | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const nudgeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => {
+    if (!ACCESS_PASSWORD || sessionStorage.getItem(ACCESS_AUTH_KEY) === "1") {
+      setAuthed(true);
+    }
+  }, []);
 
   // 경과 타이머
   useEffect(() => {
@@ -205,6 +258,10 @@ export default function StudentPage() {
     setIsRecording(false);
     setAiSpeaking(false);
   };
+
+  if (!authed) {
+    return <AccessGate onAuth={() => setAuthed(true)} />;
+  }
 
   return (
     <div className="max-w-lg mx-auto px-4 py-8">
