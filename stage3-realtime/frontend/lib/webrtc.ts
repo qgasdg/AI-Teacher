@@ -16,6 +16,7 @@ export interface WebRTCSession {
   setMicEnabled: (enabled: boolean) => void;
   commitAudioAndRespond: () => void;
   nudgeStudent: () => void;
+  cancelAiResponse: () => void;
 }
 
 const REALTIME_API_URL = "https://api.openai.com/v1/realtime";
@@ -140,6 +141,16 @@ export async function startWebRTC(
     }
   };
 
+  // AI 응답 중단 (학생이 말하기 버튼 눌렀을 때)
+  const cancelAiResponse = () => {
+    if (dc.readyState === "open") {
+      dc.send(JSON.stringify({ type: "response.cancel" }));
+    }
+    audioEl.pause();
+    audioEl.currentTime = 0;
+    unmuteNow();
+  };
+
   // 연결 해제 함수
   const disconnect = () => {
     stream.getTracks().forEach((t) => t.stop());
@@ -148,7 +159,7 @@ export async function startWebRTC(
     audioEl.srcObject = null;
   };
 
-  return { disconnect, setMicEnabled, commitAudioAndRespond, nudgeStudent };
+  return { disconnect, setMicEnabled, commitAudioAndRespond, nudgeStudent, cancelAiResponse };
 }
 
 function handleEvent(

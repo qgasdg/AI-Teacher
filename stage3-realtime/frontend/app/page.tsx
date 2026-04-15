@@ -131,10 +131,12 @@ export default function StudentPage() {
       setIsRecording(false);
       resetNudgeTimer();
     } else {
-      // 녹음 시작 → 마이크 on
+      // 녹음 시작 → AI 응답 중단 + 마이크 on
+      webrtcRef.current.cancelAiResponse();
       webrtcRef.current.setMicEnabled(true);
       setIsRecording(true);
-      resetNudgeTimer(); // 말하는 중이니 독려 타이머 리셋
+      setAiSpeaking(false);
+      resetNudgeTimer();
     }
   }, [isRecording, resetNudgeTimer]);
 
