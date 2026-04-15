@@ -85,9 +85,10 @@ export async function startWebRTC(
   const answerSdp = await sdpResponse.text();
   await pc.setRemoteDescription({ type: "answer", sdp: answerSdp });
 
-  // PTT: 마이크 on/off
+  // PTT: 마이크 on/off + 녹음 중엔 AI 오디오 음소거
   const setMicEnabled = (enabled: boolean) => {
     audioTrack.enabled = enabled;
+    audioEl.muted = enabled; // 녹음 시작 → mute, 녹음 끝 → unmute
   };
 
   // PTT: 녹음 끝 → 오디오 버퍼 커밋 + AI 응답 요청
@@ -116,7 +117,7 @@ export async function startWebRTC(
     }
   };
 
-  // AI 응답 중단 (학생이 말하기 버튼 눌렀을 때)
+  // AI 응답 중단 — setMicEnabled(true)가 mute 처리하므로 cancel만
   const cancelAiResponse = () => {
     if (dc.readyState === "open") {
       dc.send(JSON.stringify({ type: "response.cancel" }));
