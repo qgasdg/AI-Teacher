@@ -3,6 +3,8 @@
 import { useState, useEffect } from "react";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
+const TEACHER_PASSWORD = process.env.NEXT_PUBLIC_TEACHER_PASSWORD || "teacher1234";
+const AUTH_KEY = "teacher_authed";
 
 interface Session {
   id: number;
@@ -41,8 +43,27 @@ function formatDate(iso: string): string {
 }
 
 export default function TeacherDashboard() {
+  const [authed, setAuthed] = useState(false);
+  const [pwInput, setPwInput] = useState("");
+  const [pwError, setPwError] = useState(false);
   const [sessions, setSessions] = useState<Session[]>([]);
   const [expandedId, setExpandedId] = useState<number | null>(null);
+
+  useEffect(() => {
+    if (sessionStorage.getItem(AUTH_KEY) === "1") setAuthed(true);
+  }, []);
+
+  const handleLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (pwInput === TEACHER_PASSWORD) {
+      sessionStorage.setItem(AUTH_KEY, "1");
+      setAuthed(true);
+      setPwError(false);
+    } else {
+      setPwError(true);
+      setPwInput("");
+    }
+  };
 
   const fetchSessions = async () => {
     try {
@@ -61,6 +82,36 @@ export default function TeacherDashboard() {
 
   const completedCount = sessions.filter((s) => s.status === "completed").length;
   const activeCount = sessions.filter((s) => s.status === "active").length;
+
+  if (!authed) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <form
+          onSubmit={handleLogin}
+          className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 w-full max-w-sm space-y-4"
+        >
+          <h1 className="text-lg font-bold text-gray-800 text-center">교사 대시보드</h1>
+          <input
+            type="password"
+            value={pwInput}
+            onChange={(e) => setPwInput(e.target.value)}
+            placeholder="비밀번호를 입력하세요"
+            className="w-full border border-gray-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            autoFocus
+          />
+          {pwError && (
+            <p className="text-red-500 text-xs">비밀번호가 올바르지 않습니다.</p>
+          )}
+          <button
+            type="submit"
+            className="w-full py-2.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition"
+          >
+            확인
+          </button>
+        </form>
+      </div>
+    );
+  }
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-8">
