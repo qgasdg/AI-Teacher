@@ -30,8 +30,32 @@ export async function startWebRTC(
   // AI 음성 출력용 audio element
   const audioEl = document.createElement("audio");
   audioEl.autoplay = true;
+  audioEl.muted = false;
   pc.ontrack = (event) => {
     audioEl.srcObject = event.streams[0];
+  };
+
+  // 학생 텍스트 도착 전까지 AI 음성 대기
+  let unmutePending = false;
+  let unmuteTimer: ReturnType<typeof setTimeout> | null = null;
+
+  const muteUntilTranscript = () => {
+    audioEl.muted = true;
+    unmutePending = true;
+    // 최대 2초 대기 후 강제 해제 (텍스트가 늦게 오면 그냥 재생)
+    unmuteTimer = setTimeout(() => {
+      audioEl.muted = false;
+      unmutePending = false;
+    }, 2000);
+  };
+
+  const unmuteNow = () => {
+    if (unmutePending) {
+      if (unmuteTimer) clearTimeout(unmuteTimer);
+      unmuteTimer = null;
+      audioEl.muted = false;
+      unmutePending = false;
+    }
   };
 
   // 마이크 입력 (기본 음소거)
@@ -53,7 +77,7 @@ export async function startWebRTC(
   dc.onmessage = (event) => {
     try {
       const msg = JSON.parse(event.data);
-      handleEvent(msg, callbacks, () => assistantBuffer, (v) => { assistantBuffer = v; });
+      handleEvent(msg, callbacks, () => assistantBuffer, (v) => { assistantBuffer = v; }, unmuteNow);
     } catch {
       // 파싱 실패 무시
     }
@@ -92,6 +116,7 @@ export async function startWebRTC(
   // PTT: 녹음 끝 → 오디오 버퍼 커밋 + AI 응답 요청
   const commitAudioAndRespond = () => {
     if (dc.readyState === "open") {
+      muteUntilTranscript();
       dc.send(JSON.stringify({ type: "input_audio_buffer.commit" }));
       dc.send(JSON.stringify({ type: "response.create" }));
     }
@@ -130,7 +155,8 @@ function handleEvent(
   msg: Record<string, unknown>,
   callbacks: WebRTCCallbacks,
   getBuffer: () => string,
-  setBuffer: (v: string) => void
+  setBuffer: (v: string) => void,
+  unmuteNow: () => void
 ) {
   const type = msg.type as string;
 
@@ -141,6 +167,7 @@ function handleEvent(
       if (text?.trim()) {
         callbacks.onTranscript({ role: "user", text: text.trim() });
       }
+      unmuteNow(); // 학생 텍스트 도착 → AI 음성 재생 시작
       break;
     }
 
