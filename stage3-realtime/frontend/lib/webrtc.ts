@@ -207,7 +207,9 @@ function handleEvent(
 
     // 에러
     case "error": {
-      const error = msg.error as { message?: string } | undefined;
+      const error = msg.error as { message?: string; code?: string } | undefined;
+      // 취소할 응답이 없는 경우는 무시 (이미 말이 끝난 후 버튼 누를 때 발생)
+      if (error?.message?.includes("no active response")) break;
       callbacks.onError(error?.message || "알 수 없는 오류가 발생했습니다");
       break;
     }
