@@ -8,8 +8,10 @@ DATABASE_URL = os.getenv(
     "sqlite+aiosqlite:///./ai_teacher_realtime.db",
 )
 
-# Railway는 postgresql://로 주입 — asyncpg 드라이버 명시로 교체
-if DATABASE_URL.startswith("postgresql://"):
+# Railway는 postgres:// 또는 postgresql://로 주입 — asyncpg 드라이버 명시로 교체
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+asyncpg://", 1)
+elif DATABASE_URL.startswith("postgresql://"):
     DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
 
 engine = create_async_engine(DATABASE_URL, echo=False)
