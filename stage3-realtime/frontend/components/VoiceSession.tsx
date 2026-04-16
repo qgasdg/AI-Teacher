@@ -1,10 +1,8 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useEffect, useRef, useCallback } from "react";
 import SpeakingIndicator from "./SpeakingIndicator";
 import type { TranscriptEntry } from "@/lib/webrtc";
-
-const SPEED_OPTIONS = [1.0, 1.25, 1.5];
 
 interface VoiceSessionProps {
   status: "connecting" | "connected" | "disconnected";
@@ -14,7 +12,6 @@ interface VoiceSessionProps {
   aiSpeaking: boolean;
   onEnd: () => void;
   onToggleRecording: () => void;
-  onSpeedChange?: (rate: number) => void;
 }
 
 function formatTime(seconds: number): string {
@@ -31,10 +28,8 @@ export default function VoiceSession({
   aiSpeaking,
   onEnd,
   onToggleRecording,
-  onSpeedChange,
 }: VoiceSessionProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
-  const [speedIdx, setSpeedIdx] = useState(0);
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -56,23 +51,9 @@ export default function VoiceSession({
       {/* 상태 바 */}
       <div className="flex items-center justify-between">
         <SpeakingIndicator status={status} />
-        <div className="flex items-center gap-2">
-          {onSpeedChange && (
-            <button
-              onClick={() => {
-                const next = (speedIdx + 1) % SPEED_OPTIONS.length;
-                setSpeedIdx(next);
-                onSpeedChange(SPEED_OPTIONS[next]);
-              }}
-              className="text-xs font-medium text-gray-600 bg-gray-200 hover:bg-gray-300 rounded px-1.5 py-0.5 transition"
-            >
-              {SPEED_OPTIONS[speedIdx]}x
-            </button>
-          )}
-          <span className="text-sm text-gray-500 font-mono">
-            {formatTime(elapsedSeconds)}
-          </span>
-        </div>
+        <span className="text-sm text-gray-500 font-mono">
+          {formatTime(elapsedSeconds)}
+        </span>
       </div>
 
       {/* 대화 내용 */}
