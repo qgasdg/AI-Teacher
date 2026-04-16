@@ -197,8 +197,10 @@ export default function StudentPage() {
   const handleEnd = useCallback(async () => {
     resetNudgeTimer();
 
-    // WebRTC 연결 종료
+    // 녹음 데이터 먼저 가져오기 (disconnect 전에)
+    let audioBlob: Blob | null = null;
     if (webrtcRef.current) {
+      audioBlob = await webrtcRef.current.getRecordingBlob();
       webrtcRef.current.disconnect();
       webrtcRef.current = null;
     }
@@ -212,14 +214,17 @@ export default function StudentPage() {
       .join("\n");
 
     try {
-      // 세션 종료 + 트랜스크립트 전송
+      // 세션 종료 + 트랜스크립트 + 오디오 전송 (multipart/form-data)
+      const formData = new FormData();
+      formData.append("transcript", transcriptText);
+      formData.append("duration_seconds", String(elapsedSeconds));
+      if (audioBlob) {
+        formData.append("audio", audioBlob, "session-audio.webm");
+      }
+
       await fetch(`${API}/sessions/${sessionId}/end`, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          transcript: transcriptText,
-          duration_seconds: elapsedSeconds,
-        }),
+        body: formData,
       });
 
       // 요약 생성 완료 대기 (폴링)

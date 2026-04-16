@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import Integer, String, Text, DateTime
+from sqlalchemy import Integer, String, Text, DateTime, LargeBinary
 from sqlalchemy.orm import Mapped, mapped_column
 
 from database import Base
@@ -22,3 +22,4 @@ class RealtimeSession(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     ended_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
     duration_seconds: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    audio_data: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True)

@@ -16,6 +16,18 @@ interface Session {
   created_at: string;
   ended_at: string | null;
   duration_seconds: number | null;
+  has_audio: boolean;
+}
+
+function parseTranscript(transcript: string): { role: "user" | "assistant"; text: string }[] {
+  return transcript.split("\n").filter(Boolean).map((line) => {
+    if (line.startsWith("학생: ")) {
+      return { role: "user" as const, text: line.slice(4) };
+    } else if (line.startsWith("AI 선생님: ")) {
+      return { role: "assistant" as const, text: line.slice(8) };
+    }
+    return { role: "assistant" as const, text: line };
+  });
 }
 
 const STATUS_LABELS: Record<string, { label: string; className: string }> = {
@@ -196,6 +208,21 @@ export default function TeacherDashboard() {
               {/* 상세 내용 */}
               {isExpanded && (
                 <div className="px-5 pb-5 space-y-4 border-t border-gray-100 pt-4">
+                  {/* 오디오 플레이어 */}
+                  {session.has_audio && (
+                    <div>
+                      <h4 className="text-sm font-medium text-gray-700 mb-2">
+                        대화 녹음
+                      </h4>
+                      <audio
+                        controls
+                        className="w-full"
+                        src={`${API}/sessions/${session.id}/audio`}
+                      />
+                    </div>
+                  )}
+
+                  {/* AI 복습 요약 */}
                   {session.summary && (
                     <div>
                       <h4 className="text-sm font-medium text-gray-700 mb-2">
@@ -206,16 +233,39 @@ export default function TeacherDashboard() {
                       </div>
                     </div>
                   )}
+
+                  {/* 대화 기록 — 말풍선 */}
                   {session.transcript && (
                     <div>
                       <h4 className="text-sm font-medium text-gray-700 mb-2">
                         대화 기록
                       </h4>
-                      <div className="bg-gray-50 rounded-lg p-4 text-sm text-gray-600 whitespace-pre-wrap max-h-60 overflow-y-auto leading-relaxed">
-                        {session.transcript}
+                      <div className="bg-gray-50 rounded-lg p-4 max-h-80 overflow-y-auto space-y-2">
+                        {parseTranscript(session.transcript).map((entry, i) => (
+                          <div
+                            key={i}
+                            className={`flex ${
+                              entry.role === "user" ? "justify-end" : "justify-start"
+                            }`}
+                          >
+                            <div
+                              className={`max-w-[80%] px-3 py-2 rounded-2xl text-sm leading-relaxed ${
+                                entry.role === "user"
+                                  ? "bg-blue-600 text-white rounded-br-md"
+                                  : "bg-white text-gray-800 rounded-bl-md border border-gray-200"
+                              }`}
+                            >
+                              <p className="text-xs font-medium mb-0.5 opacity-70">
+                                {entry.role === "user" ? "학생" : "AI 선생님"}
+                              </p>
+                              {entry.text}
+                            </div>
+                          </div>
+                        ))}
                       </div>
                     </div>
                   )}
+
                   {!session.summary && !session.transcript && (
                     <p className="text-sm text-gray-400">
                       아직 대화 내용이 없습니다
