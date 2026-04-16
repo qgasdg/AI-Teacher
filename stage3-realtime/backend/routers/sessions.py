@@ -3,7 +3,8 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional, List
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Form, UploadFile, File
+from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -23,11 +24,6 @@ class SessionCreate(BaseModel):
     subject: str
 
 
-class SessionEnd(BaseModel):
-    transcript: str
-    duration_seconds: Optional[int] = None
-
-
 class SessionResponse(BaseModel):
     id: int
     student_name: str
@@ -38,6 +34,7 @@ class SessionResponse(BaseModel):
     created_at: str
     ended_at: Optional[str]
     duration_seconds: Optional[int]
+    has_audio: bool = False
 
     class Config:
         from_attributes = True
@@ -85,6 +82,7 @@ def _to_response(s: RealtimeSession) -> SessionResponse:
         created_at=s.created_at.isoformat(),
         ended_at=s.ended_at.isoformat() if s.ended_at else None,
         duration_seconds=s.duration_seconds,
+        has_audio=s.audio_data is not None,
     )
 
 
@@ -108,8 +106,10 @@ async def create_session(
 @router.post("/{session_id}/end", response_model=SessionResponse)
 async def end_session(
     session_id: int,
-    body: SessionEnd,
     background_tasks: BackgroundTasks,
+    transcript: str = Form(...),
+    duration_seconds: Optional[int] = Form(None),
+    audio: Optional[UploadFile] = File(None),
     db: AsyncSession = Depends(get_db),
 ):
     """세션을 종료하고 대화 요약을 생성합니다."""
@@ -123,16 +123,43 @@ async def end_session(
     if session.status != "active":
         raise HTTPException(status_code=400, detail="활성 상태의 세션이 아닙니다")
 
-    session.transcript = body.transcript
-    session.duration_seconds = body.duration_seconds
+    session.transcript = transcript
+    session.duration_seconds = duration_seconds
     session.ended_at = datetime.utcnow()
     session.status = "ending"
+
+    if audio:
+        session.audio_data = await audio.read()
+
     await db.commit()
     await db.refresh(session)
 
     background_tasks.add_task(generate_summary, session_id)
 
     return _to_response(session)
+
+
+@router.get("/{session_id}/audio")
+async def get_audio(
+    session_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """세션 오디오를 스트리밍합니다."""
+    result = await db.execute(
+        select(RealtimeSession).where(RealtimeSession.id == session_id)
+    )
+    session = result.scalar_one_or_none()
+
+    if not session:
+        raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다")
+    if not session.audio_data:
+        raise HTTPException(status_code=404, detail="오디오가 없습니다")
+
+    return Response(
+        content=session.audio_data,
+        media_type="audio/webm",
+        headers={"Content-Disposition": f"inline; filename=session-{session_id}.webm"},
+    )
 
 
 @router.get("/{session_id}", response_model=SessionResponse)

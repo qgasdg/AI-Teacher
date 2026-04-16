@@ -17,6 +17,7 @@ export interface WebRTCSession {
   commitAudioAndRespond: () => void;
   nudgeStudent: () => void;
   cancelAiResponse: () => void;
+  getRecordingBlob: () => Promise<Blob | null>;
 }
 
 const REALTIME_API_URL = "https://api.openai.com/v1/realtime";
@@ -31,8 +32,18 @@ export async function startWebRTC(
   // AI 음성 출력용 audio element
   const audioEl = document.createElement("audio");
   audioEl.autoplay = true;
+
+  // 오디오 녹음용: 마이크 + AI 음성을 믹싱
+  const audioCtx = new AudioContext();
+  const mixDest = audioCtx.createMediaStreamDestination();
+  const recordingChunks: Blob[] = [];
+  let recorder: MediaRecorder | null = null;
+
   pc.ontrack = (event) => {
     audioEl.srcObject = event.streams[0];
+    // AI 오디오를 믹서에 연결
+    const remoteSource = audioCtx.createMediaStreamSource(event.streams[0]);
+    remoteSource.connect(mixDest);
   };
 
   // 마이크 입력 (기본 음소거)
@@ -40,6 +51,17 @@ export async function startWebRTC(
   const audioTrack = stream.getTracks()[0];
   audioTrack.enabled = false; // PTT: 기본 음소거
   pc.addTrack(audioTrack);
+
+  // 마이크를 믹서에 연결
+  const micSource = audioCtx.createMediaStreamSource(stream);
+  micSource.connect(mixDest);
+
+  // MediaRecorder 시작
+  recorder = new MediaRecorder(mixDest.stream, { mimeType: "audio/webm;codecs=opus" });
+  recorder.ondataavailable = (e) => {
+    if (e.data.size > 0) recordingChunks.push(e.data);
+  };
+  recorder.start(1000); // 1초 단위 chunk
 
   // DataChannel: OpenAI 이벤트 수신
   const dc = pc.createDataChannel("oai-events");
@@ -124,15 +146,31 @@ export async function startWebRTC(
     }
   };
 
+  // 녹음 데이터 가져오기
+  const getRecordingBlob = (): Promise<Blob | null> => {
+    return new Promise((resolve) => {
+      if (!recorder || recorder.state === "inactive") {
+        resolve(recordingChunks.length > 0 ? new Blob(recordingChunks, { type: "audio/webm" }) : null);
+        return;
+      }
+      recorder.onstop = () => {
+        resolve(recordingChunks.length > 0 ? new Blob(recordingChunks, { type: "audio/webm" }) : null);
+      };
+      recorder.stop();
+    });
+  };
+
   // 연결 해제 함수
   const disconnect = () => {
+    if (recorder && recorder.state !== "inactive") recorder.stop();
     stream.getTracks().forEach((t) => t.stop());
     dc.close();
     pc.close();
     audioEl.srcObject = null;
+    audioCtx.close();
   };
 
-  return { disconnect, setMicEnabled, commitAudioAndRespond, nudgeStudent, cancelAiResponse };
+  return { disconnect, setMicEnabled, commitAudioAndRespond, nudgeStudent, cancelAiResponse, getRecordingBlob };
 }
 
 function handleEvent(
