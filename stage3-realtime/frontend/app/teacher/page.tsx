@@ -30,10 +30,13 @@ function parseTranscript(transcript: string): { role: "user" | "assistant"; text
   });
 }
 
+const SPEED_OPTIONS = [1.0, 1.25, 1.5];
+
 function AudioPlayer({ sessionId, duration }: { sessionId: number; duration: number }) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
+  const [speedIdx, setSpeedIdx] = useState(0);
 
   const totalDuration = duration || 0;
 
@@ -63,6 +66,12 @@ function AudioPlayer({ sessionId, duration }: { sessionId: number; duration: num
     const m = Math.floor(sec / 60);
     const s = Math.floor(sec % 60);
     return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  };
+
+  const toggleSpeed = () => {
+    const next = (speedIdx + 1) % SPEED_OPTIONS.length;
+    setSpeedIdx(next);
+    if (audioRef.current) audioRef.current.playbackRate = SPEED_OPTIONS[next];
   };
 
   const progress = totalDuration > 0 ? (currentTime / totalDuration) * 100 : 0;
@@ -107,6 +116,12 @@ function AudioPlayer({ sessionId, duration }: { sessionId: number; duration: num
       <span className="text-xs text-gray-500 font-mono w-12 flex-shrink-0 text-right">
         {formatTime(totalDuration)}
       </span>
+      <button
+        onClick={toggleSpeed}
+        className="text-xs font-medium text-gray-600 bg-gray-200 hover:bg-gray-300 rounded px-1.5 py-0.5 flex-shrink-0 transition"
+      >
+        {SPEED_OPTIONS[speedIdx]}x
+      </button>
     </div>
   );
 }
