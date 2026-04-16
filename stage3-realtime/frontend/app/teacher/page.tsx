@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
 const TEACHER_PASSWORD = process.env.NEXT_PUBLIC_TEACHER_PASSWORD || "teacher1234";
@@ -28,6 +28,87 @@ function parseTranscript(transcript: string): { role: "user" | "assistant"; text
     }
     return { role: "assistant" as const, text: line };
   });
+}
+
+function AudioPlayer({ sessionId, duration }: { sessionId: number; duration: number }) {
+  const audioRef = useRef<HTMLAudioElement>(null);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [currentTime, setCurrentTime] = useState(0);
+
+  const totalDuration = duration || 0;
+
+  const togglePlay = useCallback(() => {
+    const audio = audioRef.current;
+    if (!audio) return;
+    if (isPlaying) {
+      audio.pause();
+    } else {
+      audio.play();
+    }
+  }, [isPlaying]);
+
+  const handleTimeUpdate = () => {
+    if (audioRef.current) setCurrentTime(audioRef.current.currentTime);
+  };
+
+  const handleSeek = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!audioRef.current || !totalDuration) return;
+    const rect = e.currentTarget.getBoundingClientRect();
+    const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+    audioRef.current.currentTime = ratio * totalDuration;
+    setCurrentTime(ratio * totalDuration);
+  };
+
+  const formatTime = (sec: number) => {
+    const m = Math.floor(sec / 60);
+    const s = Math.floor(sec % 60);
+    return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
+  };
+
+  const progress = totalDuration > 0 ? (currentTime / totalDuration) * 100 : 0;
+
+  return (
+    <div className="flex items-center gap-3 bg-gray-100 rounded-lg px-4 py-3">
+      <audio
+        ref={audioRef}
+        src={`${API}/sessions/${sessionId}/audio`}
+        onTimeUpdate={handleTimeUpdate}
+        onPlay={() => setIsPlaying(true)}
+        onPause={() => setIsPlaying(false)}
+        onEnded={() => { setIsPlaying(false); setCurrentTime(0); }}
+      />
+      <button
+        onClick={togglePlay}
+        className="w-8 h-8 flex items-center justify-center rounded-full bg-blue-600 text-white hover:bg-blue-700 transition flex-shrink-0"
+      >
+        {isPlaying ? (
+          <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
+            <rect x="6" y="4" width="4" height="16" />
+            <rect x="14" y="4" width="4" height="16" />
+          </svg>
+        ) : (
+          <svg className="w-3.5 h-3.5 ml-0.5" fill="currentColor" viewBox="0 0 24 24">
+            <polygon points="5,3 19,12 5,21" />
+          </svg>
+        )}
+      </button>
+      <span className="text-xs text-gray-500 font-mono w-12 flex-shrink-0">
+        {formatTime(currentTime)}
+      </span>
+      <div
+        className="flex-1 h-2 bg-gray-300 rounded-full cursor-pointer relative"
+        onClick={handleSeek}
+      >
+        <div
+          className="h-full bg-blue-600 rounded-full transition-all duration-100"
+          style={{ width: `${progress}%` }}
+        />
+      </div>
+      <span className="text-xs text-gray-500 font-mono w-12 flex-shrink-0 text-right">
+        {formatTime(totalDuration)}
+      </span>
+    </div>
+  );
 }
 
 const STATUS_LABELS: Record<string, { label: string; className: string }> = {
@@ -214,10 +295,9 @@ export default function TeacherDashboard() {
                       <h4 className="text-sm font-medium text-gray-700 mb-2">
                         대화 녹음
                       </h4>
-                      <audio
-                        controls
-                        className="w-full"
-                        src={`${API}/sessions/${session.id}/audio`}
+                      <AudioPlayer
+                        sessionId={session.id}
+                        duration={session.duration_seconds || 0}
                       />
                     </div>
                   )}
