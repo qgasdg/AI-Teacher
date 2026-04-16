@@ -12,6 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from database import get_db, AsyncSessionLocal
 from models import RealtimeSession
 from services.summarizer import summarize_conversation
+from services.audio import remux_webm
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
@@ -129,7 +130,8 @@ async def end_session(
     session.status = "ending"
 
     if audio:
-        session.audio_data = await audio.read()
+        raw = await audio.read()
+        session.audio_data = await remux_webm(raw)
 
     await db.commit()
     await db.refresh(session)
@@ -158,7 +160,10 @@ async def get_audio(
     return Response(
         content=session.audio_data,
         media_type="audio/webm",
-        headers={"Content-Disposition": f"inline; filename=session-{session_id}.webm"},
+        headers={
+            "Content-Disposition": f"inline; filename=session-{session_id}.webm",
+            "Content-Length": str(len(session.audio_data)),
+        },
     )
 
 
