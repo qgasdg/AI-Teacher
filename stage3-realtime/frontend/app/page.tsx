@@ -308,6 +308,7 @@ export default function StudentPage() {
             aiSpeaking={aiSpeaking}
             onEnd={handleEnd}
             onToggleRecording={handleToggleRecording}
+            onSpeedChange={(rate) => webrtcRef.current?.setPlaybackRate(rate)}
           />
         )}
 

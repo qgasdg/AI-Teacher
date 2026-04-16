@@ -18,6 +18,7 @@ export interface WebRTCSession {
   nudgeStudent: () => void;
   cancelAiResponse: () => void;
   getRecordingBlob: () => Promise<Blob | null>;
+  setPlaybackRate: (rate: number) => void;
 }
 
 const REALTIME_API_URL = "https://api.openai.com/v1/realtime";
@@ -170,7 +171,11 @@ export async function startWebRTC(
     audioCtx.close();
   };
 
-  return { disconnect, setMicEnabled, commitAudioAndRespond, nudgeStudent, cancelAiResponse, getRecordingBlob };
+  const setPlaybackRate = (rate: number) => {
+    audioEl.playbackRate = rate;
+  };
+
+  return { disconnect, setMicEnabled, commitAudioAndRespond, nudgeStudent, cancelAiResponse, getRecordingBlob, setPlaybackRate };
 }
 
 function handleEvent(
