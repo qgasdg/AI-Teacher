@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 load_dotenv(override=True)
 
 from database import init_db
-from routers import sessions, realtime
+from routers import sessions, realtime, recordings
 
 
 @asynccontextmanager
@@ -34,6 +34,7 @@ app.add_middleware(
 
 app.include_router(sessions.router)
 app.include_router(realtime.router)
+app.include_router(recordings.router)
 
 
 @app.get("/health")

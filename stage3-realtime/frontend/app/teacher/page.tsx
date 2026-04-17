@@ -6,6 +6,24 @@ const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
 const TEACHER_PASSWORD = process.env.NEXT_PUBLIC_TEACHER_PASSWORD || "teacher1234";
 const AUTH_KEY = "teacher_authed";
 
+interface Recording {
+  id: number;
+  student_name: string;
+  question_number: string;
+  transcript: string | null;
+  status: string;
+  created_at: string;
+  completed_at: string | null;
+  has_audio: boolean;
+}
+
+const RECORDING_STATUS_LABELS: Record<string, { label: string; className: string }> = {
+  pending:    { label: "대기 중",   className: "bg-gray-100 text-gray-600" },
+  processing: { label: "전산화 중", className: "bg-yellow-100 text-yellow-700" },
+  completed:  { label: "완료",     className: "bg-green-100 text-green-700" },
+  failed:     { label: "실패",     className: "bg-red-100 text-red-700" },
+};
+
 interface Session {
   id: number;
   student_name: string;
@@ -154,8 +172,11 @@ export default function TeacherDashboard() {
   const [authed, setAuthed] = useState(false);
   const [pwInput, setPwInput] = useState("");
   const [pwError, setPwError] = useState(false);
+  const [tab, setTab] = useState<"sessions" | "recordings">("sessions");
   const [sessions, setSessions] = useState<Session[]>([]);
+  const [recordings, setRecordings] = useState<Recording[]>([]);
   const [expandedId, setExpandedId] = useState<number | null>(null);
+  const [expandedRecId, setExpandedRecId] = useState<number | null>(null);
 
   useEffect(() => {
     if (sessionStorage.getItem(AUTH_KEY) === "1") setAuthed(true);
@@ -182,9 +203,22 @@ export default function TeacherDashboard() {
     }
   };
 
+  const fetchRecordings = async () => {
+    try {
+      const res = await fetch(`${API}/recordings/`);
+      if (res.ok) setRecordings(await res.json());
+    } catch {
+      // 조용히 실패
+    }
+  };
+
   useEffect(() => {
     fetchSessions();
-    const interval = setInterval(fetchSessions, 5000);
+    fetchRecordings();
+    const interval = setInterval(() => {
+      fetchSessions();
+      fetchRecordings();
+    }, 5000);
     return () => clearInterval(interval);
   }, []);
 
@@ -223,6 +257,37 @@ export default function TeacherDashboard() {
 
   return (
     <div className="max-w-3xl mx-auto px-4 py-8">
+      {/* 탭 */}
+      <div className="flex gap-2 mb-6 border-b border-gray-200">
+        <button
+          onClick={() => setTab("sessions")}
+          className={`pb-2 px-1 text-sm font-medium border-b-2 transition ${
+            tab === "sessions"
+              ? "border-blue-600 text-blue-600"
+              : "border-transparent text-gray-500 hover:text-gray-700"
+          }`}
+        >
+          실시간 AI 대화
+        </button>
+        <button
+          onClick={() => setTab("recordings")}
+          className={`pb-2 px-1 text-sm font-medium border-b-2 transition ${
+            tab === "recordings"
+              ? "border-blue-600 text-blue-600"
+              : "border-transparent text-gray-500 hover:text-gray-700"
+          }`}
+        >
+          직독직해 녹음
+          {recordings.filter((r) => r.status === "completed").length > 0 && (
+            <span className="ml-1.5 bg-blue-100 text-blue-600 text-xs px-1.5 py-0.5 rounded-full">
+              {recordings.filter((r) => r.status === "completed").length}
+            </span>
+          )}
+        </button>
+      </div>
+
+      {/* ── 실시간 AI 대화 탭 ── */}
+      {tab === "sessions" && (<>
       {/* 통계 카드 */}
       <div className="grid grid-cols-3 gap-4 mb-6">
         <div className="bg-white rounded-xl border border-gray-100 p-4 text-center">
@@ -372,6 +437,94 @@ export default function TeacherDashboard() {
           );
         })}
       </div>
+      </>)}
+
+      {/* ── 직독직해 녹음 탭 ── */}
+      {tab === "recordings" && (
+        <div className="space-y-3">
+          {recordings.length === 0 && (
+            <div className="text-center py-12 text-gray-400 text-sm">
+              아직 직독직해 녹음이 없습니다
+            </div>
+          )}
+
+          {recordings.map((rec) => {
+            const statusInfo = RECORDING_STATUS_LABELS[rec.status] || {
+              label: rec.status,
+              className: "bg-gray-100 text-gray-600",
+            };
+            const isExpanded = expandedRecId === rec.id;
+
+            return (
+              <div
+                key={rec.id}
+                className="bg-white rounded-xl border border-gray-100 overflow-hidden"
+              >
+                <button
+                  onClick={() => setExpandedRecId(isExpanded ? null : rec.id)}
+                  className="w-full px-5 py-4 flex items-center justify-between text-left hover:bg-gray-50 transition"
+                >
+                  <div>
+                    <p className="font-medium text-gray-800">
+                      {rec.student_name}
+                      <span className="ml-2 text-blue-600 font-semibold">{rec.question_number}번</span>
+                    </p>
+                    <p className="text-xs text-gray-500">{formatDate(rec.created_at)}</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={`text-xs px-2 py-1 rounded-full font-medium ${statusInfo.className}`}>
+                      {statusInfo.label}
+                    </span>
+                    <svg
+                      className={`w-4 h-4 text-gray-400 transition-transform ${isExpanded ? "rotate-180" : ""}`}
+                      fill="none" viewBox="0 0 24 24" stroke="currentColor"
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                    </svg>
+                  </div>
+                </button>
+
+                {isExpanded && (
+                  <div className="px-5 pb-5 border-t border-gray-100 pt-4 space-y-4">
+                    {/* 오디오 플레이어 */}
+                    {rec.has_audio && (
+                      <div>
+                        <h4 className="text-sm font-medium text-gray-700 mb-2">녹음 재생</h4>
+                        <audio
+                          controls
+                          src={`${API}/recordings/${rec.id}/audio`}
+                          className="w-full"
+                        />
+                      </div>
+                    )}
+
+                    {/* 전사 텍스트 */}
+                    {rec.transcript && (
+                      <div>
+                        <h4 className="text-sm font-medium text-gray-700 mb-2">직독직해 전사 텍스트</h4>
+                        <div className="bg-gray-50 rounded-lg p-4 text-sm text-gray-700 whitespace-pre-wrap leading-relaxed max-h-60 overflow-y-auto">
+                          {rec.transcript}
+                        </div>
+                      </div>
+                    )}
+
+                    {rec.status === "processing" && (
+                      <div className="flex items-center gap-2 text-yellow-600 text-sm">
+                        <div className="w-4 h-4 border-2 border-yellow-300 border-t-yellow-600 rounded-full animate-spin" />
+                        전산화 중입니다...
+                      </div>
+                    )}
+
+                    {!rec.transcript && rec.status !== "processing" && (
+                      <p className="text-sm text-gray-400">전사 텍스트가 없습니다</p>
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
