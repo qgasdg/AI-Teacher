@@ -6,7 +6,7 @@ const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001'
 const ACCESS_PASSWORD = process.env.NEXT_PUBLIC_ACCESS_PASSWORD || ''
 const ACCESS_AUTH_KEY = 'access_authed'
 
-type PageState = 'form' | 'recording' | 'uploading' | 'processing' | 'done' | 'error'
+type PageState = 'form' | 'recording' | 'uploading' | 'done' | 'error'
 
 function AccessGate({ onAuth }: { onAuth: () => void }) {
   const [input, setInput] = useState('')
@@ -57,7 +57,6 @@ export default function RecordPage() {
   const [question, setQuestion] = useState('')
   const [isRecording, setIsRecording] = useState(false)
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null)
-  const [transcript, setTranscript] = useState<string | null>(null)
   const [error, setError] = useState('')
   const [elapsedSec, setElapsedSec] = useState(0)
 
@@ -118,39 +117,18 @@ export default function RecordPage() {
     try {
       const res = await fetch(`${API}/recordings/`, { method: 'POST', body: formData })
       if (!res.ok) throw new Error(`서버 오류: ${res.status}`)
-      const data = await res.json()
-      setPageState('processing')
-      await pollUntilDone(data.id)
+      await res.json()
+      // 전사는 서버에서 백그라운드 처리 — 업로드 성공 즉시 완료 처리
+      setPageState('done')
     } catch (e) {
       setError(e instanceof Error ? e.message : '알 수 없는 오류')
       setPageState('error')
     }
   }
 
-  const pollUntilDone = async (id: number) => {
-    for (let i = 0; i < 60; i++) {
-      await new Promise((r) => setTimeout(r, 2000))
-      const res = await fetch(`${API}/recordings/${id}`)
-      const data = await res.json()
-      if (data.status === 'completed') {
-        setTranscript(data.transcript)
-        setPageState('done')
-        return
-      }
-      if (data.status === 'failed') {
-        setError(data.transcript || '전사 실패')
-        setPageState('error')
-        return
-      }
-    }
-    setError('처리 시간 초과. 잠시 후 다시 시도해주세요.')
-    setPageState('error')
-  }
-
   const reset = () => {
     setPageState('form')
     setAudioBlob(null)
-    setTranscript(null)
     setError('')
     setElapsedSec(0)
     setQuestion('')
@@ -240,11 +218,7 @@ export default function RecordPage() {
         </div>
       )}
 
-      {pageState === 'uploading' && <StatusCard title="전송 중..." desc="녹음 파일을 업로드하고 있어요." />}
-
-      {pageState === 'processing' && (
-        <StatusCard title="전산화 중..." desc="음성을 텍스트로 변환하고 있어요. 잠시만 기다려주세요." spinner />
-      )}
+      {pageState === 'uploading' && <StatusCard title="전송 중..." desc="녹음 파일을 업로드하고 있어요." spinner />}
 
       {pageState === 'done' && (
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 flex flex-col gap-4">
@@ -255,13 +229,6 @@ export default function RecordPage() {
               {studentName}님의 직독직해가 선생님께 전달되었어요.
             </p>
           </div>
-
-          {transcript && (
-            <div className="bg-gray-50 border border-gray-200 rounded-xl p-4">
-              <p className="text-xs font-semibold text-gray-400 mb-2">내 녹음 텍스트</p>
-              <p className="text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">{transcript}</p>
-            </div>
-          )}
 
           <button
             onClick={reset}
