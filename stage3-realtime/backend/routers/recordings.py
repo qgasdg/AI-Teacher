@@ -81,14 +81,16 @@ async def transcribe_recording(recording_id: int):
 
             with open(tmp_path, "rb") as f:
                 # 직독직해는 영어 원문 → 한국어 해석이 혼용되므로
-                # language를 고정하지 않고, 영/한 혼용임을 prompt로 힌트 제공
+                # code-switching이 강한 gpt-4o-transcribe 모델 사용.
+                # (whisper-1은 주 언어 판정 후 소수 언어 세그먼트를 drop하는 한계 있음)
                 response = await client.audio.transcriptions.create(
-                    model="whisper-1",
+                    model="gpt-4o-transcribe",
                     file=f,
                     prompt=(
                         "This is an English reading comprehension exercise (직독직해). "
                         "The student reads English sentences aloud and immediately "
-                        "interprets them in Korean. 영어 원문과 한국어 해석이 섞여 있습니다."
+                        "interprets them in Korean. 영어 원문과 한국어 해석이 번갈아 섞여 있습니다. "
+                        "Please transcribe both English and Korean faithfully without dropping either."
                     ),
                 )
 
