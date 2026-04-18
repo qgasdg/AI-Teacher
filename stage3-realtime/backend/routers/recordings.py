@@ -3,7 +3,9 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Optional, List
 
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Form, UploadFile, File
+import re
+
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Form, Request, UploadFile, File
 from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -159,18 +161,60 @@ async def get_recording(recording_id: int, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/{recording_id}/audio")
-async def get_audio(recording_id: int, db: AsyncSession = Depends(get_db)):
-    """녹음 오디오 스트리밍"""
+async def get_audio(
+    recording_id: int,
+    request: Request,
+    db: AsyncSession = Depends(get_db),
+):
+    """녹음 오디오 스트리밍 (HTTP Range 요청 지원 — seek 가능)"""
     result = await db.execute(select(Recording).where(Recording.id == recording_id))
     recording = result.scalar_one_or_none()
     if not recording:
         raise HTTPException(status_code=404, detail="녹음을 찾을 수 없습니다.")
     if not recording.audio_data:
         raise HTTPException(status_code=404, detail="오디오가 없습니다.")
+
+    audio = recording.audio_data
+    size = len(audio)
+    range_header = request.headers.get("range") or request.headers.get("Range")
+
+    base_headers = {
+        "Accept-Ranges": "bytes",
+        "Content-Disposition": f"inline; filename=recording-{recording_id}.webm",
+        "Cache-Control": "no-cache",
+    }
+
+    if range_header:
+        # "bytes=START-END" 파싱 (END는 생략 가능)
+        m = re.match(r"bytes=(\d+)-(\d*)", range_header)
+        if m:
+            start = int(m.group(1))
+            end = int(m.group(2)) if m.group(2) else size - 1
+            end = min(end, size - 1)
+
+            if start > end or start >= size:
+                return Response(
+                    status_code=416,
+                    headers={**base_headers, "Content-Range": f"bytes */{size}"},
+                )
+
+            chunk = audio[start : end + 1]
+            return Response(
+                content=chunk,
+                status_code=206,
+                media_type="audio/webm",
+                headers={
+                    **base_headers,
+                    "Content-Range": f"bytes {start}-{end}/{size}",
+                    "Content-Length": str(len(chunk)),
+                },
+            )
+
+    # Range 헤더가 없으면 전체 반환 (+ Accept-Ranges 광고)
     return Response(
-        content=recording.audio_data,
+        content=audio,
         media_type="audio/webm",
-        headers={"Content-Disposition": f"inline; filename=recording-{recording_id}.webm"},
+        headers={**base_headers, "Content-Length": str(size)},
     )
 
 
