@@ -11,6 +11,7 @@ interface Recording {
   student_name: string;
   question_number: string;
   transcript: string | null;
+  feedback: string | null;
   status: string;
   created_at: string;
   completed_at: string | null;
@@ -495,6 +496,16 @@ export default function TeacherDashboard() {
                           src={`${API}/recordings/${rec.id}/audio`}
                           className="w-full"
                         />
+                      </div>
+                    )}
+
+                    {/* GPT 피드백 — 취약 구간/어려워한 단어 */}
+                    {rec.feedback && (
+                      <div>
+                        <h4 className="text-sm font-medium text-gray-700 mb-2">AI 피드백 (취약 구간 분석)</h4>
+                        <div className="bg-blue-50 border border-blue-100 rounded-lg p-4 text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">
+                          {rec.feedback}
+                        </div>
                       </div>
                     )}
 

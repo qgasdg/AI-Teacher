@@ -25,5 +25,14 @@ async def get_db():
 
 
 async def init_db():
+    from sqlalchemy import text
+
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+        # 간이 마이그레이션: recordings.feedback 컬럼이 없으면 추가
+        try:
+            await conn.execute(text("ALTER TABLE recordings ADD COLUMN feedback TEXT"))
+        except Exception:
+            # 이미 존재하거나 테이블이 없음 — 무시
+            pass

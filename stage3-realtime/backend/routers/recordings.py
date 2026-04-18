@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db, AsyncSessionLocal
 from models import Recording
+from services.recording_analyzer import analyze_recording
 
 router = APIRouter(prefix="/recordings", tags=["recordings"])
 
@@ -27,6 +28,7 @@ class RecordingResponse(BaseModel):
     student_name: str
     question_number: str
     transcript: Optional[str]
+    feedback: Optional[str]
     status: str
     created_at: str
     completed_at: Optional[str]
@@ -42,6 +44,7 @@ def _to_response(r: Recording) -> RecordingResponse:
         student_name=r.student_name,
         question_number=r.question_number,
         transcript=r.transcript,
+        feedback=r.feedback,
         status=r.status,
         created_at=r.created_at.isoformat(),
         completed_at=r.completed_at.isoformat() if r.completed_at else None,
@@ -85,6 +88,16 @@ async def transcribe_recording(recording_id: int):
             _os.unlink(tmp_path)
 
             recording.transcript = response.text
+
+            # GPT 분석: 취약 구간/어려워한 단어 피드백 생성
+            try:
+                recording.feedback = await analyze_recording(
+                    transcript=response.text,
+                    question_number=recording.question_number,
+                )
+            except Exception as analyze_err:
+                recording.feedback = f"분석 실패: {str(analyze_err)}"
+
             recording.status = "completed"
             recording.completed_at = datetime.utcnow()
 
@@ -106,8 +119,8 @@ async def create_recording(
     db: AsyncSession = Depends(get_db),
 ):
     """오디오 업로드 → 녹음 생성 → 백그라운드 STT"""
-    if question_number not in ("31", "32", "33"):
-        raise HTTPException(status_code=400, detail="question_number는 31, 32, 33 중 하나여야 합니다.")
+    if not question_number.strip():
+        raise HTTPException(status_code=400, detail="문항 번호가 비어있습니다.")
 
     if audio.content_type not in ALLOWED_AUDIO_TYPES:
         raise HTTPException(status_code=400, detail=f"지원하지 않는 오디오 형식: {audio.content_type}")
