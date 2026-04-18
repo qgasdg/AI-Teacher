@@ -78,10 +78,16 @@ async def transcribe_recording(recording_id: int):
                 tmp_path = tmp.name
 
             with open(tmp_path, "rb") as f:
+                # 직독직해는 영어 원문 → 한국어 해석이 혼용되므로
+                # language를 고정하지 않고, 영/한 혼용임을 prompt로 힌트 제공
                 response = await client.audio.transcriptions.create(
                     model="whisper-1",
                     file=f,
-                    language="ko",
+                    prompt=(
+                        "This is an English reading comprehension exercise (직독직해). "
+                        "The student reads English sentences aloud and immediately "
+                        "interprets them in Korean. 영어 원문과 한국어 해석이 섞여 있습니다."
+                    ),
                 )
 
             import os as _os
