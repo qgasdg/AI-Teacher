@@ -74,28 +74,39 @@ async def transcribe_recording(recording_id: int):
 
             client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-            # 임시 파일로 저장 후 Whisper 전송
+            # 임시 파일로 저장
             with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as tmp:
                 tmp.write(recording.audio_data)
                 tmp_path = tmp.name
 
-            with open(tmp_path, "rb") as f:
-                # 직독직해는 영어 원문 → 한국어 해석이 혼용되므로
-                # code-switching이 강한 gpt-4o-transcribe 모델 사용.
-                # (whisper-1은 주 언어 판정 후 소수 언어 세그먼트를 drop하는 한계 있음)
-                response = await client.audio.transcriptions.create(
-                    model="gpt-4o-transcribe",
-                    file=f,
-                    prompt=(
-                        "This is an English reading comprehension exercise (직독직해). "
-                        "The student reads English sentences aloud and immediately "
-                        "interprets them in Korean. 영어 원문과 한국어 해석이 번갈아 섞여 있습니다. "
-                        "Please transcribe both English and Korean faithfully without dropping either."
-                    ),
-                )
+            transcribe_prompt = (
+                "This is an English reading comprehension exercise (직독직해). "
+                "The student reads English sentences aloud and immediately "
+                "interprets them in Korean. 영어 원문과 한국어 해석이 번갈아 섞여 있습니다. "
+                "Please transcribe both English and Korean faithfully without dropping either."
+            )
+
+            # 폴백 체인: gpt-4o-transcribe (다국어 우수) → whisper-1 (포맷 관용도 높음)
+            response = None
+            last_err = None
+            for model_name in ("gpt-4o-transcribe", "whisper-1"):
+                try:
+                    with open(tmp_path, "rb") as f:
+                        response = await client.audio.transcriptions.create(
+                            model=model_name,
+                            file=f,
+                            prompt=transcribe_prompt,
+                        )
+                    break
+                except Exception as e:
+                    last_err = e
+                    continue
 
             import os as _os
             _os.unlink(tmp_path)
+
+            if response is None:
+                raise last_err or RuntimeError("STT 전사 실패")
 
             recording.transcript = response.text
 
