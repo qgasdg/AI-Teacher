@@ -230,6 +230,32 @@ async def list_recordings(db: AsyncSession = Depends(get_db)):
     return [_to_response(r) for r in result.scalars().all()]
 
 
+@router.post("/{recording_id}/retry", response_model=RecordingResponse)
+async def retry_recording(
+    recording_id: int,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+):
+    """저장된 오디오로 재전사 (재업로드 불필요)"""
+    result = await db.execute(select(Recording).where(Recording.id == recording_id))
+    recording = result.scalar_one_or_none()
+    if not recording:
+        raise HTTPException(status_code=404, detail="녹음을 찾을 수 없습니다.")
+    if not recording.audio_data:
+        raise HTTPException(status_code=400, detail="원본 오디오가 없어 재전사할 수 없습니다.")
+
+    # 이전 결과 초기화 후 백그라운드 재실행
+    recording.transcript = None
+    recording.feedback = None
+    recording.status = "pending"
+    recording.completed_at = None
+    await db.commit()
+    await db.refresh(recording)
+
+    background_tasks.add_task(transcribe_recording, recording.id)
+    return _to_response(recording)
+
+
 @router.delete("/{recording_id}", status_code=204)
 async def delete_recording(recording_id: int, db: AsyncSession = Depends(get_db)):
     """녹음 삭제 (오디오 + 전사 + 피드백)"""

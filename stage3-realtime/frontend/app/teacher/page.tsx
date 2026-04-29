@@ -228,6 +228,27 @@ export default function TeacherDashboard() {
     }
   };
 
+  const retryRecording = async (id: number) => {
+    // 낙관적 업데이트: 즉시 processing 상태로
+    setRecordings((prev) =>
+      prev.map((r) =>
+        r.id === id
+          ? { ...r, status: "processing", transcript: null, feedback: null }
+          : r
+      )
+    );
+    try {
+      const res = await fetch(`${API}/recordings/${id}/retry`, { method: "POST" });
+      if (!res.ok) {
+        alert("재전사 요청에 실패했습니다.");
+        fetchRecordings();
+      }
+    } catch {
+      alert("재전사 중 오류가 발생했습니다.");
+      fetchRecordings();
+    }
+  };
+
   useEffect(() => {
     fetchSessions();
     fetchRecordings();
@@ -458,21 +479,6 @@ export default function TeacherDashboard() {
       {/* ── 직독직해 녹음 탭 ── */}
       {tab === "recordings" && (
         <div className="space-y-3">
-          {/* 새로고침 바 */}
-          <div className="flex justify-between items-center">
-            <p className="text-xs text-gray-500">총 {recordings.length}개</p>
-            <button
-              onClick={fetchRecordings}
-              className="text-sm text-blue-600 hover:text-blue-700 flex items-center gap-1.5"
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-              새로고침
-            </button>
-          </div>
-
           {recordings.length === 0 && (
             <div className="text-center py-12 text-gray-400 text-sm">
               아직 직독직해 녹음이 없습니다
@@ -486,34 +492,56 @@ export default function TeacherDashboard() {
             };
             const isExpanded = expandedRecId === rec.id;
 
+            const canRetry = rec.has_audio && rec.status !== "processing" && rec.status !== "pending";
+
             return (
               <div
                 key={rec.id}
                 className="bg-white rounded-xl border border-gray-100 overflow-hidden"
               >
-                <button
-                  onClick={() => setExpandedRecId(isExpanded ? null : rec.id)}
-                  className="w-full px-5 py-4 flex items-center justify-between text-left hover:bg-gray-50 transition"
-                >
-                  <div>
+                <div className="w-full px-5 py-4 flex items-center justify-between hover:bg-gray-50 transition">
+                  <button
+                    onClick={() => setExpandedRecId(isExpanded ? null : rec.id)}
+                    className="flex-1 text-left"
+                  >
                     <p className="font-medium text-gray-800">
                       {rec.student_name}
                       <span className="ml-2 text-blue-600 font-semibold">{rec.question_number}번</span>
                     </p>
                     <p className="text-xs text-gray-500">{formatDate(rec.created_at)}</p>
-                  </div>
+                  </button>
                   <div className="flex items-center gap-2">
                     <span className={`text-xs px-2 py-1 rounded-full font-medium ${statusInfo.className}`}>
                       {statusInfo.label}
                     </span>
-                    <svg
-                      className={`w-4 h-4 text-gray-400 transition-transform ${isExpanded ? "rotate-180" : ""}`}
-                      fill="none" viewBox="0 0 24 24" stroke="currentColor"
+                    {canRetry && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          retryRecording(rec.id);
+                        }}
+                        title="이 녹음만 재전사"
+                        className="p-1.5 rounded-md text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition active:scale-95"
+                      >
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </svg>
+                      </button>
+                    )}
+                    <button
+                      onClick={() => setExpandedRecId(isExpanded ? null : rec.id)}
+                      className="p-1"
                     >
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                    </svg>
+                      <svg
+                        className={`w-4 h-4 text-gray-400 transition-transform ${isExpanded ? "rotate-180" : ""}`}
+                        fill="none" viewBox="0 0 24 24" stroke="currentColor"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                      </svg>
+                    </button>
                   </div>
-                </button>
+                </div>
 
                 {isExpanded && (
                   <div className="px-5 pb-5 border-t border-gray-100 pt-4 space-y-4">
