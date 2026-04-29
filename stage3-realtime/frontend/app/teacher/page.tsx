@@ -213,6 +213,21 @@ export default function TeacherDashboard() {
     }
   };
 
+  const deleteRecording = async (id: number) => {
+    if (!confirm("이 녹음을 삭제할까요? 복구할 수 없습니다.")) return;
+    try {
+      const res = await fetch(`${API}/recordings/${id}`, { method: "DELETE" });
+      if (res.ok) {
+        setRecordings((prev) => prev.filter((r) => r.id !== id));
+        if (expandedRecId === id) setExpandedRecId(null);
+      } else {
+        alert("삭제에 실패했습니다.");
+      }
+    } catch {
+      alert("삭제 중 오류가 발생했습니다.");
+    }
+  };
+
   useEffect(() => {
     fetchSessions();
     fetchRecordings();
@@ -443,6 +458,21 @@ export default function TeacherDashboard() {
       {/* ── 직독직해 녹음 탭 ── */}
       {tab === "recordings" && (
         <div className="space-y-3">
+          {/* 새로고침 바 */}
+          <div className="flex justify-between items-center">
+            <p className="text-xs text-gray-500">총 {recordings.length}개</p>
+            <button
+              onClick={fetchRecordings}
+              className="text-sm text-blue-600 hover:text-blue-700 flex items-center gap-1.5"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              새로고침
+            </button>
+          </div>
+
           {recordings.length === 0 && (
             <div className="text-center py-12 text-gray-400 text-sm">
               아직 직독직해 녹음이 없습니다
@@ -525,6 +555,30 @@ export default function TeacherDashboard() {
                         전산화 중입니다...
                       </div>
                     )}
+
+                    {/* 실패 상세 */}
+                    {rec.status === "failed" && rec.transcript && (
+                      <div>
+                        <h4 className="text-sm font-medium text-red-600 mb-2">전사 실패</h4>
+                        <div className="bg-red-50 border border-red-100 rounded-lg p-3 text-xs text-red-700 whitespace-pre-wrap break-all">
+                          {rec.transcript}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* 삭제 버튼 */}
+                    <div className="pt-2 border-t border-gray-100 flex justify-end">
+                      <button
+                        onClick={() => deleteRecording(rec.id)}
+                        className="text-xs text-red-500 hover:text-red-700 flex items-center gap-1 px-3 py-1.5 rounded hover:bg-red-50 transition"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                            d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M1 7h22M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3" />
+                        </svg>
+                        삭제
+                      </button>
+                    </div>
 
                     {!rec.transcript && rec.status !== "processing" && (
                       <p className="text-sm text-gray-400">전사 텍스트가 없습니다</p>

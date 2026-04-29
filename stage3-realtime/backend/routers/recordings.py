@@ -86,27 +86,19 @@ async def transcribe_recording(recording_id: int):
                 "Please transcribe both English and Korean faithfully without dropping either."
             )
 
-            # 폴백 체인: gpt-4o-transcribe (다국어 우수) → whisper-1 (포맷 관용도 높음)
-            response = None
-            last_err = None
-            for model_name in ("gpt-4o-transcribe", "whisper-1"):
+            try:
+                with open(tmp_path, "rb") as f:
+                    response = await client.audio.transcriptions.create(
+                        model="gpt-4o-transcribe",
+                        file=f,
+                        prompt=transcribe_prompt,
+                    )
+            finally:
+                import os as _os
                 try:
-                    with open(tmp_path, "rb") as f:
-                        response = await client.audio.transcriptions.create(
-                            model=model_name,
-                            file=f,
-                            prompt=transcribe_prompt,
-                        )
-                    break
-                except Exception as e:
-                    last_err = e
-                    continue
-
-            import os as _os
-            _os.unlink(tmp_path)
-
-            if response is None:
-                raise last_err or RuntimeError("STT 전사 실패")
+                    _os.unlink(tmp_path)
+                except OSError:
+                    pass
 
             recording.transcript = response.text
 
@@ -236,3 +228,15 @@ async def list_recordings(db: AsyncSession = Depends(get_db)):
     """모든 직독직해 녹음 목록"""
     result = await db.execute(select(Recording).order_by(Recording.created_at.desc()))
     return [_to_response(r) for r in result.scalars().all()]
+
+
+@router.delete("/{recording_id}", status_code=204)
+async def delete_recording(recording_id: int, db: AsyncSession = Depends(get_db)):
+    """녹음 삭제 (오디오 + 전사 + 피드백)"""
+    result = await db.execute(select(Recording).where(Recording.id == recording_id))
+    recording = result.scalar_one_or_none()
+    if not recording:
+        raise HTTPException(status_code=404, detail="녹음을 찾을 수 없습니다.")
+    await db.delete(recording)
+    await db.commit()
+    return Response(status_code=204)
