@@ -63,7 +63,7 @@ export default function VoiceSession({
       >
         {transcript.length === 0 && status === "connected" && (
           <p className="text-gray-400 text-sm text-center mt-8">
-            말하기 버튼을 눌러 선생님께 인사의 말을 건네보세요!
+            선생님이 곧 인사를 건넬 거예요. 잠시만 기다려주세요!
           </p>
         )}
         {transcript.map((entry, i) => (

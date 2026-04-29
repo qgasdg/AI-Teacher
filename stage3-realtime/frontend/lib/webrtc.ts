@@ -71,6 +71,13 @@ export async function startWebRTC(
 
   dc.onopen = () => {
     callbacks.onConnected();
+    // AI 선생님이 먼저 인사하도록 즉시 응답 생성 트리거
+    // (마이크는 음소거 상태이므로 학생 입력 없이 AI만 말함)
+    try {
+      dc.send(JSON.stringify({ type: "response.create" }));
+    } catch {
+      // 송신 실패해도 연결 자체는 유지
+    }
   };
 
   dc.onmessage = (event) => {
