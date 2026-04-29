@@ -187,3 +187,17 @@ async def list_sessions(db: AsyncSession = Depends(get_db)):
     )
     sessions = result.scalars().all()
     return [_to_response(s) for s in sessions]
+
+
+@router.delete("/{session_id}", status_code=204)
+async def delete_session(session_id: int, db: AsyncSession = Depends(get_db)):
+    """세션 삭제 (오디오 + 대화 기록 + 요약)"""
+    result = await db.execute(
+        select(RealtimeSession).where(RealtimeSession.id == session_id)
+    )
+    session = result.scalar_one_or_none()
+    if not session:
+        raise HTTPException(status_code=404, detail="세션을 찾을 수 없습니다")
+    await db.delete(session)
+    await db.commit()
+    return Response(status_code=204)

@@ -228,6 +228,21 @@ export default function TeacherDashboard() {
     }
   };
 
+  const deleteSession = async (id: number) => {
+    if (!confirm("이 대화 세션을 삭제할까요? 복구할 수 없습니다.")) return;
+    try {
+      const res = await fetch(`${API}/sessions/${id}`, { method: "DELETE" });
+      if (res.ok) {
+        setSessions((prev) => prev.filter((s) => s.id !== id));
+        if (expandedId === id) setExpandedId(null);
+      } else {
+        alert("삭제에 실패했습니다.");
+      }
+    } catch {
+      alert("삭제 중 오류가 발생했습니다.");
+    }
+  };
+
   const retryRecording = async (id: number) => {
     // 낙관적 업데이트: 즉시 processing 상태로
     setRecordings((prev) =>
@@ -468,6 +483,20 @@ export default function TeacherDashboard() {
                       아직 대화 내용이 없습니다
                     </p>
                   )}
+
+                  {/* 삭제 버튼 */}
+                  <div className="pt-2 border-t border-gray-100 flex justify-end">
+                    <button
+                      onClick={() => deleteSession(session.id)}
+                      className="text-xs text-red-500 hover:text-red-700 flex items-center gap-1 px-3 py-1.5 rounded hover:bg-red-50 transition"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                          d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M1 7h22M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3" />
+                      </svg>
+                      삭제
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
