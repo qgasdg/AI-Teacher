@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db, AsyncSessionLocal
 from models import Recording
+from services.audio import webm_to_wav_chunks
 from services.recording_analyzer import analyze_recording
 
 router = APIRouter(prefix="/recordings", tags=["recordings"])
@@ -57,9 +58,16 @@ def _to_response(r: Recording) -> RecordingResponse:
 # --- Background Task: Whisper STT ---
 
 async def transcribe_recording(recording_id: int):
-    """백그라운드에서 Whisper STT로 녹음 전사"""
+    """백그라운드에서 STT 실행.
+
+    파이프라인:
+      1) DB에서 webm 바이트 로드
+      2) ffmpeg로 16kHz mono wav 변환 + 25MB 미만 청크 분할
+      3) 각 청크를 gpt-4o-transcribe로 순차 전사
+      4) 결과 텍스트 합치고 GPT 피드백 생성
+    """
+    import io
     import os
-    import tempfile
     from openai import AsyncOpenAI
 
     async with AsyncSessionLocal() as db:
@@ -74,10 +82,8 @@ async def transcribe_recording(recording_id: int):
 
             client = AsyncOpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-            # 임시 파일로 저장
-            with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as tmp:
-                tmp.write(recording.audio_data)
-                tmp_path = tmp.name
+            # 1+2) webm → wav 청크 분할
+            wav_chunks = await webm_to_wav_chunks(recording.audio_data)
 
             transcribe_prompt = (
                 "This is an English reading comprehension exercise (직독직해). "
@@ -86,21 +92,25 @@ async def transcribe_recording(recording_id: int):
                 "Please transcribe both English and Korean faithfully without dropping either."
             )
 
-            try:
-                with open(tmp_path, "rb") as f:
-                    response = await client.audio.transcriptions.create(
-                        model="gpt-4o-transcribe",
-                        file=f,
-                        prompt=transcribe_prompt,
-                    )
-            finally:
-                import os as _os
-                try:
-                    _os.unlink(tmp_path)
-                except OSError:
-                    pass
+            # 3) 청크별 전사 (순차 실행 — 청크 간 prompt 컨텍스트 이어가기)
+            transcripts: list[str] = []
+            for i, chunk_bytes in enumerate(wav_chunks):
+                # 이전 청크 마지막 일부를 prompt에 붙여 문맥 연결
+                tail_context = ""
+                if transcripts:
+                    tail_context = " 이전 구간 끝부분: " + transcripts[-1][-200:]
 
-            recording.transcript = response.text
+                buf = io.BytesIO(chunk_bytes)
+                buf.name = f"chunk-{i:03d}.wav"  # OpenAI SDK가 확장자로 포맷 판단
+
+                response = await client.audio.transcriptions.create(
+                    model="gpt-4o-transcribe",
+                    file=buf,
+                    prompt=transcribe_prompt + tail_context,
+                )
+                transcripts.append((response.text or "").strip())
+
+            recording.transcript = " ".join(t for t in transcripts if t)
 
             # GPT 분석: 취약 구간/어려워한 단어 피드백 생성
             try:
@@ -228,6 +238,32 @@ async def list_recordings(db: AsyncSession = Depends(get_db)):
     """모든 직독직해 녹음 목록"""
     result = await db.execute(select(Recording).order_by(Recording.created_at.desc()))
     return [_to_response(r) for r in result.scalars().all()]
+
+
+@router.post("/{recording_id}/retry", response_model=RecordingResponse)
+async def retry_recording(
+    recording_id: int,
+    background_tasks: BackgroundTasks,
+    db: AsyncSession = Depends(get_db),
+):
+    """저장된 오디오로 재전사 (재업로드 불필요)"""
+    result = await db.execute(select(Recording).where(Recording.id == recording_id))
+    recording = result.scalar_one_or_none()
+    if not recording:
+        raise HTTPException(status_code=404, detail="녹음을 찾을 수 없습니다.")
+    if not recording.audio_data:
+        raise HTTPException(status_code=400, detail="원본 오디오가 없어 재전사할 수 없습니다.")
+
+    # 이전 결과 초기화 후 백그라운드 재실행
+    recording.transcript = None
+    recording.feedback = None
+    recording.status = "pending"
+    recording.completed_at = None
+    await db.commit()
+    await db.refresh(recording)
+
+    background_tasks.add_task(transcribe_recording, recording.id)
+    return _to_response(recording)
 
 
 @router.delete("/{recording_id}", status_code=204)

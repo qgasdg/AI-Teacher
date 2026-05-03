@@ -1,6 +1,37 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import ReactMarkdown from "react-markdown";
+
+// AI 출력(요약/피드백)에 들어있는 마크다운을 렌더링하기 위한 공통 컴포넌트.
+// Tailwind typography 플러그인 없이도 읽기 좋게 보이도록 element별로 className 지정.
+function Markdown({ children }: { children: string }) {
+  return (
+    <ReactMarkdown
+      components={{
+        h1: ({ children }) => <h1 className="text-base font-bold mt-3 mb-1.5">{children}</h1>,
+        h2: ({ children }) => <h2 className="text-sm font-bold mt-3 mb-1.5">{children}</h2>,
+        h3: ({ children }) => <h3 className="text-sm font-semibold mt-2.5 mb-1">{children}</h3>,
+        h4: ({ children }) => <h4 className="text-sm font-semibold mt-2 mb-1">{children}</h4>,
+        p: ({ children }) => <p className="my-1.5 leading-relaxed">{children}</p>,
+        ul: ({ children }) => <ul className="list-disc list-outside pl-5 my-1.5 space-y-0.5">{children}</ul>,
+        ol: ({ children }) => <ol className="list-decimal list-outside pl-5 my-1.5 space-y-0.5">{children}</ol>,
+        li: ({ children }) => <li className="leading-relaxed">{children}</li>,
+        strong: ({ children }) => <strong className="font-semibold text-gray-900">{children}</strong>,
+        em: ({ children }) => <em className="italic">{children}</em>,
+        code: ({ children }) => (
+          <code className="px-1 py-0.5 rounded bg-gray-200 text-gray-800 text-xs font-mono">{children}</code>
+        ),
+        hr: () => <hr className="my-3 border-gray-200" />,
+        blockquote: ({ children }) => (
+          <blockquote className="border-l-2 border-gray-300 pl-3 text-gray-600 my-2">{children}</blockquote>
+        ),
+      }}
+    >
+      {children}
+    </ReactMarkdown>
+  );
+}
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
 const TEACHER_PASSWORD = process.env.NEXT_PUBLIC_TEACHER_PASSWORD || "teacher1234";
@@ -150,6 +181,7 @@ const STATUS_LABELS: Record<string, { label: string; className: string }> = {
   ending: { label: "요약 중", className: "bg-yellow-100 text-yellow-700" },
   completed: { label: "완료", className: "bg-green-100 text-green-700" },
   failed: { label: "실패", className: "bg-red-100 text-red-700" },
+  abandoned: { label: "중단됨", className: "bg-gray-200 text-gray-500" },
 };
 
 function formatDuration(seconds: number): string {
@@ -225,6 +257,42 @@ export default function TeacherDashboard() {
       }
     } catch {
       alert("삭제 중 오류가 발생했습니다.");
+    }
+  };
+
+  const deleteSession = async (id: number) => {
+    if (!confirm("이 대화 세션을 삭제할까요? 복구할 수 없습니다.")) return;
+    try {
+      const res = await fetch(`${API}/sessions/${id}`, { method: "DELETE" });
+      if (res.ok) {
+        setSessions((prev) => prev.filter((s) => s.id !== id));
+        if (expandedId === id) setExpandedId(null);
+      } else {
+        alert("삭제에 실패했습니다.");
+      }
+    } catch {
+      alert("삭제 중 오류가 발생했습니다.");
+    }
+  };
+
+  const retryRecording = async (id: number) => {
+    // 낙관적 업데이트: 즉시 processing 상태로
+    setRecordings((prev) =>
+      prev.map((r) =>
+        r.id === id
+          ? { ...r, status: "processing", transcript: null, feedback: null }
+          : r
+      )
+    );
+    try {
+      const res = await fetch(`${API}/recordings/${id}/retry`, { method: "POST" });
+      if (!res.ok) {
+        alert("재전사 요청에 실패했습니다.");
+        fetchRecordings();
+      }
+    } catch {
+      alert("재전사 중 오류가 발생했습니다.");
+      fetchRecordings();
     }
   };
 
@@ -333,21 +401,27 @@ export default function TeacherDashboard() {
             label: session.status,
             className: "bg-gray-100 text-gray-600",
           };
-          const isExpanded = expandedId === session.id;
+          const isAbandoned = session.status === "abandoned";
+          const isExpanded = !isAbandoned && expandedId === session.id;
 
           return (
             <div
               key={session.id}
-              className="bg-white rounded-xl border border-gray-100 overflow-hidden"
+              className={`rounded-xl border border-gray-100 overflow-hidden ${
+                isAbandoned ? "bg-gray-50 opacity-60" : "bg-white"
+              }`}
             >
-              {/* 헤더 */}
-              <button
-                onClick={() => setExpandedId(isExpanded ? null : session.id)}
-                className="w-full px-5 py-4 flex items-center justify-between text-left hover:bg-gray-50 transition"
-              >
-                <div className="flex items-center gap-3">
+              {/* 헤더 — abandoned는 클릭 불가 */}
+              <div className="w-full px-5 py-4 flex items-center justify-between">
+                <button
+                  onClick={() => !isAbandoned && setExpandedId(isExpanded ? null : session.id)}
+                  disabled={isAbandoned}
+                  className={`flex-1 text-left flex items-center gap-3 ${
+                    isAbandoned ? "cursor-default" : "hover:opacity-80"
+                  }`}
+                >
                   <div>
-                    <p className="font-medium text-gray-800">
+                    <p className={`font-medium ${isAbandoned ? "text-gray-500" : "text-gray-800"}`}>
                       {session.student_name}
                     </p>
                     <p className="text-xs text-gray-500">
@@ -357,30 +431,43 @@ export default function TeacherDashboard() {
                         : ""}
                     </p>
                   </div>
-                </div>
+                </button>
                 <div className="flex items-center gap-2">
                   <span
                     className={`text-xs px-2 py-1 rounded-full font-medium ${statusInfo.className}`}
                   >
                     {statusInfo.label}
                   </span>
-                  <svg
-                    className={`w-4 h-4 text-gray-400 transition-transform ${
-                      isExpanded ? "rotate-180" : ""
-                    }`}
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M19 9l-7 7-7-7"
-                    />
-                  </svg>
+                  {isAbandoned ? (
+                    <button
+                      onClick={() => deleteSession(session.id)}
+                      title="삭제"
+                      className="p-1.5 rounded-md text-gray-400 hover:text-red-600 hover:bg-red-50 transition"
+                    >
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                          d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M1 7h22M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3" />
+                      </svg>
+                    </button>
+                  ) : (
+                    <svg
+                      className={`w-4 h-4 text-gray-400 transition-transform ${
+                        isExpanded ? "rotate-180" : ""
+                      }`}
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M19 9l-7 7-7-7"
+                      />
+                    </svg>
+                  )}
                 </div>
-              </button>
+              </div>
 
               {/* 상세 내용 */}
               {isExpanded && (
@@ -404,8 +491,8 @@ export default function TeacherDashboard() {
                       <h4 className="text-sm font-medium text-gray-700 mb-2">
                         AI 복습 요약
                       </h4>
-                      <div className="bg-blue-50 rounded-lg p-4 text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">
-                        {session.summary}
+                      <div className="bg-blue-50 rounded-lg p-4 text-sm text-gray-700">
+                        <Markdown>{session.summary}</Markdown>
                       </div>
                     </div>
                   )}
@@ -447,6 +534,20 @@ export default function TeacherDashboard() {
                       아직 대화 내용이 없습니다
                     </p>
                   )}
+
+                  {/* 삭제 버튼 */}
+                  <div className="pt-2 border-t border-gray-100 flex justify-end">
+                    <button
+                      onClick={() => deleteSession(session.id)}
+                      className="text-xs text-red-500 hover:text-red-700 flex items-center gap-1 px-3 py-1.5 rounded hover:bg-red-50 transition"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                          d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M1 7h22M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3" />
+                      </svg>
+                      삭제
+                    </button>
+                  </div>
                 </div>
               )}
             </div>
@@ -458,21 +559,6 @@ export default function TeacherDashboard() {
       {/* ── 직독직해 녹음 탭 ── */}
       {tab === "recordings" && (
         <div className="space-y-3">
-          {/* 새로고침 바 */}
-          <div className="flex justify-between items-center">
-            <p className="text-xs text-gray-500">총 {recordings.length}개</p>
-            <button
-              onClick={fetchRecordings}
-              className="text-sm text-blue-600 hover:text-blue-700 flex items-center gap-1.5"
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-              새로고침
-            </button>
-          </div>
-
           {recordings.length === 0 && (
             <div className="text-center py-12 text-gray-400 text-sm">
               아직 직독직해 녹음이 없습니다
@@ -486,34 +572,56 @@ export default function TeacherDashboard() {
             };
             const isExpanded = expandedRecId === rec.id;
 
+            const canRetry = rec.has_audio && rec.status !== "processing" && rec.status !== "pending";
+
             return (
               <div
                 key={rec.id}
                 className="bg-white rounded-xl border border-gray-100 overflow-hidden"
               >
-                <button
-                  onClick={() => setExpandedRecId(isExpanded ? null : rec.id)}
-                  className="w-full px-5 py-4 flex items-center justify-between text-left hover:bg-gray-50 transition"
-                >
-                  <div>
+                <div className="w-full px-5 py-4 flex items-center justify-between hover:bg-gray-50 transition">
+                  <button
+                    onClick={() => setExpandedRecId(isExpanded ? null : rec.id)}
+                    className="flex-1 text-left"
+                  >
                     <p className="font-medium text-gray-800">
                       {rec.student_name}
-                      <span className="ml-2 text-blue-600 font-semibold">{rec.question_number}번</span>
+                      <span className="ml-2 text-blue-600 font-semibold">{rec.question_number}</span>
                     </p>
                     <p className="text-xs text-gray-500">{formatDate(rec.created_at)}</p>
-                  </div>
+                  </button>
                   <div className="flex items-center gap-2">
                     <span className={`text-xs px-2 py-1 rounded-full font-medium ${statusInfo.className}`}>
                       {statusInfo.label}
                     </span>
-                    <svg
-                      className={`w-4 h-4 text-gray-400 transition-transform ${isExpanded ? "rotate-180" : ""}`}
-                      fill="none" viewBox="0 0 24 24" stroke="currentColor"
+                    {canRetry && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          retryRecording(rec.id);
+                        }}
+                        title="이 녹음만 재전사"
+                        className="p-1.5 rounded-md text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition active:scale-95"
+                      >
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                        </svg>
+                      </button>
+                    )}
+                    <button
+                      onClick={() => setExpandedRecId(isExpanded ? null : rec.id)}
+                      className="p-1"
                     >
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                    </svg>
+                      <svg
+                        className={`w-4 h-4 text-gray-400 transition-transform ${isExpanded ? "rotate-180" : ""}`}
+                        fill="none" viewBox="0 0 24 24" stroke="currentColor"
+                      >
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                      </svg>
+                    </button>
                   </div>
-                </button>
+                </div>
 
                 {isExpanded && (
                   <div className="px-5 pb-5 border-t border-gray-100 pt-4 space-y-4">
@@ -533,8 +641,8 @@ export default function TeacherDashboard() {
                     {rec.feedback && (
                       <div>
                         <h4 className="text-sm font-medium text-gray-700 mb-2">AI 피드백 (취약 구간 분석)</h4>
-                        <div className="bg-blue-50 border border-blue-100 rounded-lg p-4 text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">
-                          {rec.feedback}
+                        <div className="bg-blue-50 border border-blue-100 rounded-lg p-4 text-sm text-gray-700">
+                          <Markdown>{rec.feedback}</Markdown>
                         </div>
                       </div>
                     )}
