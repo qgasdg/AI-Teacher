@@ -1,6 +1,37 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
+import ReactMarkdown from "react-markdown";
+
+// AI 출력(요약/피드백)에 들어있는 마크다운을 렌더링하기 위한 공통 컴포넌트.
+// Tailwind typography 플러그인 없이도 읽기 좋게 보이도록 element별로 className 지정.
+function Markdown({ children }: { children: string }) {
+  return (
+    <ReactMarkdown
+      components={{
+        h1: ({ children }) => <h1 className="text-base font-bold mt-3 mb-1.5">{children}</h1>,
+        h2: ({ children }) => <h2 className="text-sm font-bold mt-3 mb-1.5">{children}</h2>,
+        h3: ({ children }) => <h3 className="text-sm font-semibold mt-2.5 mb-1">{children}</h3>,
+        h4: ({ children }) => <h4 className="text-sm font-semibold mt-2 mb-1">{children}</h4>,
+        p: ({ children }) => <p className="my-1.5 leading-relaxed">{children}</p>,
+        ul: ({ children }) => <ul className="list-disc list-outside pl-5 my-1.5 space-y-0.5">{children}</ul>,
+        ol: ({ children }) => <ol className="list-decimal list-outside pl-5 my-1.5 space-y-0.5">{children}</ol>,
+        li: ({ children }) => <li className="leading-relaxed">{children}</li>,
+        strong: ({ children }) => <strong className="font-semibold text-gray-900">{children}</strong>,
+        em: ({ children }) => <em className="italic">{children}</em>,
+        code: ({ children }) => (
+          <code className="px-1 py-0.5 rounded bg-gray-200 text-gray-800 text-xs font-mono">{children}</code>
+        ),
+        hr: () => <hr className="my-3 border-gray-200" />,
+        blockquote: ({ children }) => (
+          <blockquote className="border-l-2 border-gray-300 pl-3 text-gray-600 my-2">{children}</blockquote>
+        ),
+      }}
+    >
+      {children}
+    </ReactMarkdown>
+  );
+}
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
 const TEACHER_PASSWORD = process.env.NEXT_PUBLIC_TEACHER_PASSWORD || "teacher1234";
@@ -460,8 +491,8 @@ export default function TeacherDashboard() {
                       <h4 className="text-sm font-medium text-gray-700 mb-2">
                         AI 복습 요약
                       </h4>
-                      <div className="bg-blue-50 rounded-lg p-4 text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">
-                        {session.summary}
+                      <div className="bg-blue-50 rounded-lg p-4 text-sm text-gray-700">
+                        <Markdown>{session.summary}</Markdown>
                       </div>
                     </div>
                   )}
@@ -610,8 +641,8 @@ export default function TeacherDashboard() {
                     {rec.feedback && (
                       <div>
                         <h4 className="text-sm font-medium text-gray-700 mb-2">AI 피드백 (취약 구간 분석)</h4>
-                        <div className="bg-blue-50 border border-blue-100 rounded-lg p-4 text-sm text-gray-700 whitespace-pre-wrap leading-relaxed">
-                          {rec.feedback}
+                        <div className="bg-blue-50 border border-blue-100 rounded-lg p-4 text-sm text-gray-700">
+                          <Markdown>{rec.feedback}</Markdown>
                         </div>
                       </div>
                     )}
