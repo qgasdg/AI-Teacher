@@ -48,7 +48,17 @@ const HALLUCINATION_PATTERNS: RegExp[] = [
   /^이[\s]*영상의?[\s]*자막은.*$/,
   // 영어 outro 흔적
   /^Thank[\s]*you[\s]*for[\s]*watching[.!?\s]*$/i,
+  /^Thank[\s]*you[.!?\s]*$/i,           // 단독 "Thank you."
+  /^Thanks[.!?\s]*$/i,
   /^Bye[\s.!?]*$/i,
+  /^Goodbye[.!?\s]*$/i,
+  /^Hello[.!?\s]*$/i,
+  // gpt-4o-realtime이 무음 입력에 흔히 출력하는 메타 라벨
+  /^\[?\s*Silence\s*\]?[.!?\s]*$/i,
+  /^\[?\s*Music\s*\]?[.!?\s]*$/i,
+  /^\[?\s*Inaudible\s*\]?[.!?\s]*$/i,
+  /^\[?\s*Background\s*noise\s*\]?[.!?\s]*$/i,
+  /^\(\s*silence\s*\).*$/i,
   // 단독 짧은 환각 빈출 문구
   /^감사합니다[.!?\s]*$/,
   /^안녕히[\s]*계세요[.!?\s]*$/,
