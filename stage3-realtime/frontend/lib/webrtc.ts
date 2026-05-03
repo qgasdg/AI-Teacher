@@ -28,6 +28,39 @@ export interface WebRTCSession {
 const REALTIME_API_URL = "https://api.openai.com/v1/realtime";
 const MODEL = "gpt-4o-realtime-preview";
 
+/**
+ * Whisper가 무음/잡음에서 자주 만들어내는 환각 문구.
+ * 학습 데이터의 유튜브 자막/방송 outro 흔적이 발화처럼 출력되는 현상.
+ * 전체 문장이 패턴과 일치할 때만 필터 (부분 일치는 정상 발화 손실 위험).
+ */
+const HALLUCINATION_PATTERNS: RegExp[] = [
+  // 유튜브 outro
+  /^시청해[\s]*주셔서[\s]*(정말[\s]*)?감사합니다[.!?\s]*$/,
+  /^구독과?[\s,]*좋아요([\s]*부탁드립니다)?[.!?\s]*$/,
+  /^구독[\s,]*좋아요[.!?\s]*$/,
+  /^다음[\s]*영상에서[\s]*(만나요|뵙겠습니다)[.!?\s]*$/,
+  /^오늘[\s]*영상은[\s]*여기까지(입니다)?[.!?\s]*$/,
+  /^영상[\s]*시청.*감사합니다[.!?\s]*$/,
+  // 방송
+  /^MBC[\s]*뉴스.*$/i,
+  /^KBS[\s]*뉴스.*$/i,
+  /^방송이[\s]*종료되었습니다[.!?\s]*$/,
+  /^이[\s]*영상의?[\s]*자막은.*$/,
+  // 영어 outro 흔적
+  /^Thank[\s]*you[\s]*for[\s]*watching[.!?\s]*$/i,
+  /^Bye[\s.!?]*$/i,
+  // 단독 짧은 환각 빈출 문구
+  /^감사합니다[.!?\s]*$/,
+  /^안녕히[\s]*계세요[.!?\s]*$/,
+  /^다음[\s]*시간에[\s]*뵙겠습니다[.!?\s]*$/,
+];
+
+function isHallucinatedTranscript(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed) return true;
+  return HALLUCINATION_PATTERNS.some((re) => re.test(trimmed));
+}
+
 export async function startWebRTC(
   ephemeralKey: string,
   callbacks: WebRTCCallbacks
@@ -232,10 +265,11 @@ function handleEvent(
     case "conversation.item.input_audio_transcription.completed": {
       const itemId = msg.item_id as string | undefined;
       const text = (msg.transcript as string)?.trim();
-      if (itemId && text) {
+      if (itemId && text && !isHallucinatedTranscript(text)) {
         ensureItem(itemId, "user").text = text;
         emit();
       }
+      // 환각/빈 문구는 슬롯을 안 채워 emitTranscript의 filter에서 자동 제외됨
       break;
     }
 
