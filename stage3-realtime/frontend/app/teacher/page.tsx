@@ -150,6 +150,7 @@ const STATUS_LABELS: Record<string, { label: string; className: string }> = {
   ending: { label: "요약 중", className: "bg-yellow-100 text-yellow-700" },
   completed: { label: "완료", className: "bg-green-100 text-green-700" },
   failed: { label: "실패", className: "bg-red-100 text-red-700" },
+  abandoned: { label: "중단됨", className: "bg-gray-200 text-gray-500" },
 };
 
 function formatDuration(seconds: number): string {
@@ -369,21 +370,27 @@ export default function TeacherDashboard() {
             label: session.status,
             className: "bg-gray-100 text-gray-600",
           };
-          const isExpanded = expandedId === session.id;
+          const isAbandoned = session.status === "abandoned";
+          const isExpanded = !isAbandoned && expandedId === session.id;
 
           return (
             <div
               key={session.id}
-              className="bg-white rounded-xl border border-gray-100 overflow-hidden"
+              className={`rounded-xl border border-gray-100 overflow-hidden ${
+                isAbandoned ? "bg-gray-50 opacity-60" : "bg-white"
+              }`}
             >
-              {/* 헤더 */}
-              <button
-                onClick={() => setExpandedId(isExpanded ? null : session.id)}
-                className="w-full px-5 py-4 flex items-center justify-between text-left hover:bg-gray-50 transition"
-              >
-                <div className="flex items-center gap-3">
+              {/* 헤더 — abandoned는 클릭 불가 */}
+              <div className="w-full px-5 py-4 flex items-center justify-between">
+                <button
+                  onClick={() => !isAbandoned && setExpandedId(isExpanded ? null : session.id)}
+                  disabled={isAbandoned}
+                  className={`flex-1 text-left flex items-center gap-3 ${
+                    isAbandoned ? "cursor-default" : "hover:opacity-80"
+                  }`}
+                >
                   <div>
-                    <p className="font-medium text-gray-800">
+                    <p className={`font-medium ${isAbandoned ? "text-gray-500" : "text-gray-800"}`}>
                       {session.student_name}
                     </p>
                     <p className="text-xs text-gray-500">
@@ -393,30 +400,43 @@ export default function TeacherDashboard() {
                         : ""}
                     </p>
                   </div>
-                </div>
+                </button>
                 <div className="flex items-center gap-2">
                   <span
                     className={`text-xs px-2 py-1 rounded-full font-medium ${statusInfo.className}`}
                   >
                     {statusInfo.label}
                   </span>
-                  <svg
-                    className={`w-4 h-4 text-gray-400 transition-transform ${
-                      isExpanded ? "rotate-180" : ""
-                    }`}
-                    fill="none"
-                    viewBox="0 0 24 24"
-                    stroke="currentColor"
-                  >
-                    <path
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      strokeWidth={2}
-                      d="M19 9l-7 7-7-7"
-                    />
-                  </svg>
+                  {isAbandoned ? (
+                    <button
+                      onClick={() => deleteSession(session.id)}
+                      title="삭제"
+                      className="p-1.5 rounded-md text-gray-400 hover:text-red-600 hover:bg-red-50 transition"
+                    >
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                          d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6M1 7h22M9 7V4a1 1 0 011-1h4a1 1 0 011 1v3" />
+                      </svg>
+                    </button>
+                  ) : (
+                    <svg
+                      className={`w-4 h-4 text-gray-400 transition-transform ${
+                        isExpanded ? "rotate-180" : ""
+                      }`}
+                      fill="none"
+                      viewBox="0 0 24 24"
+                      stroke="currentColor"
+                    >
+                      <path
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        strokeWidth={2}
+                        d="M19 9l-7 7-7-7"
+                      />
+                    </svg>
+                  )}
                 </div>
-              </button>
+              </div>
 
               {/* 상세 내용 */}
               {isExpanded && (

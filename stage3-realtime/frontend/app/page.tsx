@@ -81,6 +81,25 @@ export default function StudentPage() {
     }
   }, []);
 
+  // 탭 닫힘 감지: active 세션을 best-effort로 abandoned 처리
+  // (sendBeacon은 페이지 unload 중에도 안정적으로 전송됨)
+  // visibilitychange는 단순 탭 전환에도 발생해서 false positive 위험 — 사용 안 함
+  // 모바일 강제 종료 등 잡히지 않는 케이스는 백엔드의 2시간 타임아웃으로 정리됨
+  useEffect(() => {
+    if (!sessionId || pageState !== "conversation") return;
+
+    const onBeforeUnload = () => {
+      try {
+        navigator.sendBeacon(`${API}/sessions/${sessionId}/abandon`);
+      } catch {
+        // 실패해도 무시 — 백엔드 타임아웃으로 자동 정리됨
+      }
+    };
+
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, [sessionId, pageState]);
+
   // 경과 타이머
   useEffect(() => {
     if (pageState === "conversation") {

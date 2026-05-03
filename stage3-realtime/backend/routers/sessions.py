@@ -1,12 +1,12 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional, List
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Form, UploadFile, File
 from fastapi.responses import Response
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db, AsyncSessionLocal
@@ -14,6 +14,21 @@ from models import RealtimeSession
 from services.summarizer import summarize_conversation
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
+
+# 학생이 종료 버튼 안 누르고 떠난 세션 자동 정리 임계치
+ABANDON_AFTER_HOURS = 2
+
+
+async def _mark_abandoned_sessions(db: AsyncSession) -> None:
+    """`active`로 ABANDON_AFTER_HOURS 시간 넘긴 세션을 `abandoned`로 일괄 변경."""
+    cutoff = datetime.utcnow() - timedelta(hours=ABANDON_AFTER_HOURS)
+    await db.execute(
+        update(RealtimeSession)
+        .where(RealtimeSession.status == "active")
+        .where(RealtimeSession.created_at < cutoff)
+        .values(status="abandoned", ended_at=datetime.utcnow())
+    )
+    await db.commit()
 
 
 # --- Request / Response Models ---
@@ -181,12 +196,32 @@ async def get_session(
 
 @router.get("/", response_model=List[SessionResponse])
 async def list_sessions(db: AsyncSession = Depends(get_db)):
-    """모든 세션 목록을 조회합니다."""
+    """모든 세션 목록을 조회합니다. (호출 시점에 stale active 세션을 abandoned로 정리)"""
+    await _mark_abandoned_sessions(db)
     result = await db.execute(
         select(RealtimeSession).order_by(RealtimeSession.created_at.desc())
     )
     sessions = result.scalars().all()
     return [_to_response(s) for s in sessions]
+
+
+@router.post("/{session_id}/abandon", status_code=204)
+async def abandon_session(session_id: int, db: AsyncSession = Depends(get_db)):
+    """학생이 탭 닫고 떠날 때 best-effort로 호출 (sendBeacon).
+
+    오디오/transcript는 브라우저에 있다 사라지므로 복구 불가 — status만 abandoned로 마킹.
+    """
+    result = await db.execute(
+        select(RealtimeSession).where(RealtimeSession.id == session_id)
+    )
+    session = result.scalar_one_or_none()
+    if not session:
+        return Response(status_code=204)
+    if session.status == "active":
+        session.status = "abandoned"
+        session.ended_at = datetime.utcnow()
+        await db.commit()
+    return Response(status_code=204)
 
 
 @router.delete("/{session_id}", status_code=204)
