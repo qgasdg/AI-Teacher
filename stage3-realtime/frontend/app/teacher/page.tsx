@@ -555,7 +555,7 @@ export default function TeacherDashboard() {
                   >
                     <p className="font-medium text-gray-800">
                       {rec.student_name}
-                      <span className="ml-2 text-blue-600 font-semibold">{rec.question_number}번</span>
+                      <span className="ml-2 text-blue-600 font-semibold">{rec.question_number}</span>
                     </p>
                     <p className="text-xs text-gray-500">{formatDate(rec.created_at)}</p>
                   </button>
