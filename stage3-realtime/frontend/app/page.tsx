@@ -194,7 +194,7 @@ export default function StudentPage() {
       // 3. WebRTC 연결
       const session = await startWebRTC(tokenData.client_secret, {
         onConnected: () => setPageState("conversation"),
-        onTranscript: (entry) => setTranscript((prev) => [...prev, entry]),
+        onTranscript: (entries) => setTranscript(entries),
         onError: (error) => {
           setErrorMsg(error);
           setPageState("error");
