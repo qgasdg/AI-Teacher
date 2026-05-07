@@ -5,8 +5,8 @@ import SessionForm from "@/components/SessionForm";
 import VoiceSession from "@/components/VoiceSession";
 import SessionSummary from "@/components/SessionSummary";
 import { startWebRTC, type TranscriptEntry, type WebRTCSession } from "@/lib/webrtc";
+import { apiFetch, API_URL as API } from "@/lib/api";
 
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
 const ACCESS_PASSWORD = process.env.NEXT_PUBLIC_ACCESS_PASSWORD || "";
 const ACCESS_AUTH_KEY = "access_authed";
 
@@ -171,7 +171,7 @@ export default function StudentPage() {
 
     try {
       // 1. 세션 생성
-      const sessionRes = await fetch(`${API}/sessions/`, {
+      const sessionRes = await apiFetch(`/sessions/`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ student_name: name, subject: subj }),
@@ -182,7 +182,7 @@ export default function StudentPage() {
       setSessionId(sessionData.id);
 
       // 2. 임시 키 발급
-      const tokenRes = await fetch(`${API}/api/session/token`, {
+      const tokenRes = await apiFetch(`/api/session/token`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ session_id: sessionData.id }),
@@ -241,7 +241,7 @@ export default function StudentPage() {
         formData.append("audio", audioBlob, "session-audio.webm");
       }
 
-      await fetch(`${API}/sessions/${sessionId}/end`, {
+      await apiFetch(`/sessions/${sessionId}/end`, {
         method: "POST",
         body: formData,
       });
@@ -250,7 +250,7 @@ export default function StudentPage() {
       const maxAttempts = 60;
       for (let i = 0; i < maxAttempts; i++) {
         await new Promise((r) => setTimeout(r, 2000));
-        const res = await fetch(`${API}/sessions/${sessionId}`);
+        const res = await apiFetch(`/sessions/${sessionId}`);
         const data = await res.json();
 
         if (data.status === "completed") {

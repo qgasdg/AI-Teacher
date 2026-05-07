@@ -7,11 +7,13 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from auth import verify_secret
 from database import get_db
 from models import RealtimeSession
 from services.openai_realtime import get_ephemeral_key
 
-router = APIRouter(prefix="/api", tags=["realtime"])
+# /api/session/token은 OpenAI Realtime 비용을 발생시키므로 반드시 보호
+router = APIRouter(prefix="/api", tags=["realtime"], dependencies=[Depends(verify_secret)])
 
 AI_TEACHER_PROMPT_TEMPLATE = """[역할]
 당신은 {student_name} 학생의 복습을 도와주는 친근한 AI 선생님입니다.
