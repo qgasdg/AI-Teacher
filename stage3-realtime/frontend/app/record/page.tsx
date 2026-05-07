@@ -29,7 +29,7 @@ function AccessGate({ onAuth }: { onAuth: () => void }) {
         onSubmit={handleSubmit}
         className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 w-full max-w-sm space-y-4"
       >
-        <h1 className="text-lg font-bold text-gray-800 text-center">직독직해 녹음</h1>
+        <h1 className="text-lg font-bold text-gray-800 text-center">복습 녹음</h1>
         <input
           type="password"
           value={input}
@@ -142,8 +142,8 @@ export default function RecordPage() {
   return (
     <div className="max-w-lg mx-auto px-4 py-10">
       <div className="text-center mb-8">
-        <h1 className="text-2xl font-bold text-gray-800">직독직해 녹음 제출</h1>
-        <p className="text-gray-500 text-sm mt-1">지문을 직독직해로 읽고 녹음해 주세요</p>
+        <h1 className="text-2xl font-bold text-gray-800">복습 녹음 제출</h1>
+        <p className="text-gray-500 text-sm mt-1">오늘 배운 내용을 자신의 말로 설명하고 녹음해 주세요</p>
       </div>
 
       {(pageState === 'form' || pageState === 'recording') && (
@@ -226,7 +226,7 @@ export default function RecordPage() {
             <span className="text-4xl">✅</span>
             <h2 className="text-xl font-bold text-gray-800 mt-2">전송 완료!</h2>
             <p className="text-gray-500 text-sm">
-              {studentName}님의 직독직해가 선생님께 전달되었어요.
+              {studentName}님의 복습 녹음이 선생님께 전달되었어요.
             </p>
           </div>
 

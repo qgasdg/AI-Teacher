@@ -1,4 +1,4 @@
-"""직독직해 STT용 오디오 전처리.
+"""복습 녹음 STT용 오디오 전처리.
 
 흐름: MediaRecorder webm → ffmpeg로 16kHz mono PCM wav 변환 → 25MB 미만 청크로 분할.
 

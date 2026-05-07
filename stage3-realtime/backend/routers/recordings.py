@@ -86,10 +86,10 @@ async def transcribe_recording(recording_id: int):
             wav_chunks = await webm_to_wav_chunks(recording.audio_data)
 
             transcribe_prompt = (
-                "This is an English reading comprehension exercise (직독직해). "
-                "The student reads English sentences aloud and immediately "
-                "interprets them in Korean. 영어 원문과 한국어 해석이 번갈아 섞여 있습니다. "
-                "Please transcribe both English and Korean faithfully without dropping either."
+                "이 녹음은 학생이 오늘 배운 내용을 자신의 말로 설명하는 복습 녹음입니다. "
+                "한국어 위주이지만 과목 용어로 영어/외래어가 섞일 수 있습니다 "
+                "(예: SVM, kernel, 직독직해, vector 등). "
+                "한국어와 영어 모두 빠뜨리지 말고 충실히 받아 적어 주세요."
             )
 
             # 3) 청크별 전사 (순차 실행 — 청크 간 prompt 컨텍스트 이어가기)
@@ -235,7 +235,7 @@ async def get_audio(
 
 @router.get("/", response_model=List[RecordingResponse])
 async def list_recordings(db: AsyncSession = Depends(get_db)):
-    """모든 직독직해 녹음 목록"""
+    """모든 복습 녹음 목록"""
     result = await db.execute(select(Recording).order_by(Recording.created_at.desc()))
     return [_to_response(r) for r in result.scalars().all()]
 

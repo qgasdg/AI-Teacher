@@ -361,7 +361,7 @@ export default function TeacherDashboard() {
               : "border-transparent text-gray-500 hover:text-gray-700"
           }`}
         >
-          직독직해 녹음
+          복습 녹음
           {recordings.filter((r) => r.status === "completed").length > 0 && (
             <span className="ml-1.5 bg-blue-100 text-blue-600 text-xs px-1.5 py-0.5 rounded-full">
               {recordings.filter((r) => r.status === "completed").length}
@@ -556,12 +556,12 @@ export default function TeacherDashboard() {
       </div>
       </>)}
 
-      {/* ── 직독직해 녹음 탭 ── */}
+      {/* ── 복습 녹음 탭 ── */}
       {tab === "recordings" && (
         <div className="space-y-3">
           {recordings.length === 0 && (
             <div className="text-center py-12 text-gray-400 text-sm">
-              아직 직독직해 녹음이 없습니다
+              아직 복습 녹음이 없습니다
             </div>
           )}
 
@@ -650,7 +650,7 @@ export default function TeacherDashboard() {
                     {/* 전사 텍스트 */}
                     {rec.transcript && (
                       <div>
-                        <h4 className="text-sm font-medium text-gray-700 mb-2">직독직해 전사 텍스트</h4>
+                        <h4 className="text-sm font-medium text-gray-700 mb-2">복습 녹음 전사 텍스트</h4>
                         <div className="bg-gray-50 rounded-lg p-4 text-sm text-gray-700 whitespace-pre-wrap leading-relaxed max-h-60 overflow-y-auto">
                           {rec.transcript}
                         </div>

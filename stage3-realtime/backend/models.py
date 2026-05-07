@@ -10,7 +10,7 @@ from database import Base
 
 
 class Recording(Base):
-    """직독직해 녹음 세션 (31/32/33번, 일방향 녹음 → STT)"""
+    """복습 녹음 세션 (학생이 배운 내용을 일방향으로 녹음 → STT)"""
     __tablename__ = "recordings"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
