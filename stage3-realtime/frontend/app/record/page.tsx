@@ -1,8 +1,7 @@
 'use client'
 
 import { useState, useRef, useCallback, useEffect } from 'react'
-
-const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8001'
+import { apiFetch } from '@/lib/api'
 const ACCESS_PASSWORD = process.env.NEXT_PUBLIC_ACCESS_PASSWORD || ''
 const ACCESS_AUTH_KEY = 'access_authed'
 
@@ -115,7 +114,7 @@ export default function RecordPage() {
     formData.append('audio', audioBlob, 'recording.webm')
 
     try {
-      const res = await fetch(`${API}/recordings/`, { method: 'POST', body: formData })
+      const res = await apiFetch('/recordings/', { method: 'POST', body: formData })
       if (!res.ok) throw new Error(`서버 오류: ${res.status}`)
       await res.json()
       // 전사는 서버에서 백그라운드 처리 — 업로드 성공 즉시 완료 처리

@@ -9,11 +9,16 @@ from pydantic import BaseModel
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from auth import verify_secret
 from database import get_db, AsyncSessionLocal
 from models import RealtimeSession
 from services.summarizer import summarize_conversation
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
+
+# 모든 sessions 엔드포인트에 적용할 인증 의존성.
+# (abandon은 sendBeacon 호환을 위해 의도적으로 제외 — 별도 데코레이터에서 미적용)
+PROTECTED = [Depends(verify_secret)]
 
 # 학생이 종료 버튼 안 누르고 떠난 세션 자동 정리 임계치
 ABANDON_AFTER_HOURS = 2
@@ -101,7 +106,7 @@ def _to_response(s: RealtimeSession) -> SessionResponse:
     )
 
 
-@router.post("/", response_model=SessionResponse)
+@router.post("/", response_model=SessionResponse, dependencies=PROTECTED)
 async def create_session(
     body: SessionCreate,
     db: AsyncSession = Depends(get_db),
@@ -118,7 +123,7 @@ async def create_session(
     return _to_response(session)
 
 
-@router.post("/{session_id}/end", response_model=SessionResponse)
+@router.post("/{session_id}/end", response_model=SessionResponse, dependencies=PROTECTED)
 async def end_session(
     session_id: int,
     background_tasks: BackgroundTasks,
@@ -154,7 +159,7 @@ async def end_session(
     return _to_response(session)
 
 
-@router.get("/{session_id}/audio")
+@router.get("/{session_id}/audio", dependencies=PROTECTED)
 async def get_audio(
     session_id: int,
     db: AsyncSession = Depends(get_db),
@@ -177,7 +182,7 @@ async def get_audio(
     )
 
 
-@router.get("/{session_id}", response_model=SessionResponse)
+@router.get("/{session_id}", response_model=SessionResponse, dependencies=PROTECTED)
 async def get_session(
     session_id: int,
     db: AsyncSession = Depends(get_db),
@@ -194,7 +199,7 @@ async def get_session(
     return _to_response(session)
 
 
-@router.get("/", response_model=List[SessionResponse])
+@router.get("/", response_model=List[SessionResponse], dependencies=PROTECTED)
 async def list_sessions(db: AsyncSession = Depends(get_db)):
     """모든 세션 목록을 조회합니다. (호출 시점에 stale active 세션을 abandoned로 정리)"""
     await _mark_abandoned_sessions(db)
@@ -224,7 +229,7 @@ async def abandon_session(session_id: int, db: AsyncSession = Depends(get_db)):
     return Response(status_code=204)
 
 
-@router.delete("/{session_id}", status_code=204)
+@router.delete("/{session_id}", status_code=204, dependencies=PROTECTED)
 async def delete_session(session_id: int, db: AsyncSession = Depends(get_db)):
     """세션 삭제 (오디오 + 대화 기록 + 요약)"""
     result = await db.execute(

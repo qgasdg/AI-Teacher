@@ -11,12 +11,14 @@ from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from auth import verify_secret
 from database import get_db, AsyncSessionLocal
 from models import Recording
 from services.audio import webm_to_wav_chunks
 from services.recording_analyzer import analyze_recording
 
-router = APIRouter(prefix="/recordings", tags=["recordings"])
+# 모든 /recordings 엔드포인트 인증 필요 (예외 없음)
+router = APIRouter(prefix="/recordings", tags=["recordings"], dependencies=[Depends(verify_secret)])
 
 ALLOWED_AUDIO_TYPES = {
     "audio/webm", "audio/mp4", "audio/mpeg", "audio/wav",

@@ -2,6 +2,12 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import ReactMarkdown from "react-markdown";
+import { apiFetch, API_URL } from "@/lib/api";
+
+// audio src처럼 헤더를 못 보내는 곳에 시크릿을 query로 붙이기 위한 헬퍼.
+const API_SECRET = process.env.NEXT_PUBLIC_API_SECRET || "";
+const audioSrc = (path: string) =>
+  API_SECRET ? `${API_URL}${path}?secret=${encodeURIComponent(API_SECRET)}` : `${API_URL}${path}`;
 
 // AI 출력(요약/피드백)에 들어있는 마크다운을 렌더링하기 위한 공통 컴포넌트.
 // Tailwind typography 플러그인 없이도 읽기 좋게 보이도록 element별로 className 지정.
@@ -33,7 +39,7 @@ function Markdown({ children }: { children: string }) {
   );
 }
 
-const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8001";
+const API = API_URL;
 const TEACHER_PASSWORD = process.env.NEXT_PUBLIC_TEACHER_PASSWORD || "teacher1234";
 const AUTH_KEY = "teacher_authed";
 
@@ -130,7 +136,7 @@ function AudioPlayer({ sessionId, duration }: { sessionId: number; duration: num
     <div className="flex items-center gap-3 bg-gray-100 rounded-lg px-4 py-3">
       <audio
         ref={audioRef}
-        src={`${API}/sessions/${sessionId}/audio`}
+        src={audioSrc(`/sessions/${sessionId}/audio`)}
         onTimeUpdate={handleTimeUpdate}
         onPlay={() => setIsPlaying(true)}
         onPause={() => setIsPlaying(false)}
@@ -229,7 +235,7 @@ export default function TeacherDashboard() {
 
   const fetchSessions = async () => {
     try {
-      const res = await fetch(`${API}/sessions/`);
+      const res = await apiFetch(`/sessions/`);
       if (res.ok) setSessions(await res.json());
     } catch {
       // 조용히 실패
@@ -238,7 +244,7 @@ export default function TeacherDashboard() {
 
   const fetchRecordings = async () => {
     try {
-      const res = await fetch(`${API}/recordings/`);
+      const res = await apiFetch(`/recordings/`);
       if (res.ok) setRecordings(await res.json());
     } catch {
       // 조용히 실패
@@ -248,7 +254,7 @@ export default function TeacherDashboard() {
   const deleteRecording = async (id: number) => {
     if (!confirm("이 녹음을 삭제할까요? 복구할 수 없습니다.")) return;
     try {
-      const res = await fetch(`${API}/recordings/${id}`, { method: "DELETE" });
+      const res = await apiFetch(`/recordings/${id}`, { method: "DELETE" });
       if (res.ok) {
         setRecordings((prev) => prev.filter((r) => r.id !== id));
         if (expandedRecId === id) setExpandedRecId(null);
@@ -263,7 +269,7 @@ export default function TeacherDashboard() {
   const deleteSession = async (id: number) => {
     if (!confirm("이 대화 세션을 삭제할까요? 복구할 수 없습니다.")) return;
     try {
-      const res = await fetch(`${API}/sessions/${id}`, { method: "DELETE" });
+      const res = await apiFetch(`/sessions/${id}`, { method: "DELETE" });
       if (res.ok) {
         setSessions((prev) => prev.filter((s) => s.id !== id));
         if (expandedId === id) setExpandedId(null);
@@ -285,7 +291,7 @@ export default function TeacherDashboard() {
       )
     );
     try {
-      const res = await fetch(`${API}/recordings/${id}/retry`, { method: "POST" });
+      const res = await apiFetch(`/recordings/${id}/retry`, { method: "POST" });
       if (!res.ok) {
         alert("재전사 요청에 실패했습니다.");
         fetchRecordings();
@@ -631,7 +637,7 @@ export default function TeacherDashboard() {
                         <h4 className="text-sm font-medium text-gray-700 mb-2">녹음 재생</h4>
                         <audio
                           controls
-                          src={`${API}/recordings/${rec.id}/audio`}
+                          src={audioSrc(`/recordings/${rec.id}/audio`)}
                           className="w-full"
                         />
                       </div>
