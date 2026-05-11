@@ -160,14 +160,14 @@ export default function RecordPage() {
             />
           </div>
 
-          {/* 문항 번호 자유 입력 */}
+          {/* 학습 주제 자유 입력 */}
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">문항 번호</label>
+            <label className="block text-sm font-medium text-gray-700 mb-1">학습 주제</label>
             <input
               type="text"
               value={question}
               onChange={(e) => setQuestion(e.target.value)}
-              placeholder="예: 31, 32, 33"
+              placeholder="예: 수학 - 이차방정식, 영어 본문 3과"
               disabled={isRecording}
               className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 disabled:bg-gray-50 disabled:text-gray-400"
             />
@@ -233,7 +233,7 @@ export default function RecordPage() {
             onClick={reset}
             className="w-full border border-gray-200 text-gray-600 py-2 rounded-xl hover:bg-gray-50 transition text-sm"
           >
-            다른 문항 녹음하기
+            다른 내용 녹음하기
           </button>
         </div>
       )}
