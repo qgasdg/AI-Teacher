@@ -1,371 +1,52 @@
-"use client";
+import Link from 'next/link'
 
-import { useState, useRef, useEffect, useCallback } from "react";
-import SessionForm from "@/components/SessionForm";
-import VoiceSession from "@/components/VoiceSession";
-import SessionSummary from "@/components/SessionSummary";
-import { startWebRTC, type TranscriptEntry, type WebRTCSession } from "@/lib/webrtc";
-import { apiFetch, API_URL as API } from "@/lib/api";
-
-const ACCESS_PASSWORD = process.env.NEXT_PUBLIC_ACCESS_PASSWORD || "";
-const ACCESS_AUTH_KEY = "access_authed";
-
-type PageState = "form" | "connecting" | "conversation" | "ending" | "done" | "error";
-
-const NUDGE_TIMEOUT_MS = 30_000; // 30초 후 독려
-
-function AccessGate({ onAuth }: { onAuth: () => void }) {
-  const [input, setInput] = useState("");
-  const [error, setError] = useState(false);
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (input === ACCESS_PASSWORD) {
-      sessionStorage.setItem(ACCESS_AUTH_KEY, "1");
-      onAuth();
-    } else {
-      setError(true);
-      setInput("");
-    }
-  };
-
+export default function HomePage() {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gray-50">
-      <form
-        onSubmit={handleSubmit}
-        className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 w-full max-w-sm space-y-4"
-      >
-        <h1 className="text-lg font-bold text-gray-800 text-center">AI 선생님</h1>
-        <input
-          type="password"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          placeholder="비밀번호를 입력하세요"
-          className="w-full border border-gray-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-          autoFocus
-        />
-        {error && (
-          <p className="text-red-500 text-xs">비밀번호가 올바르지 않습니다.</p>
-        )}
-        <button
-          type="submit"
-          className="w-full py-2.5 bg-blue-600 text-white text-sm font-medium rounded-lg hover:bg-blue-700 transition"
-        >
-          확인
-        </button>
-      </form>
-    </div>
-  );
-}
+    <div className="max-w-2xl mx-auto px-4 py-16">
+      <div className="text-center mb-12">
+        <h1 className="text-3xl font-bold text-gray-800">AI 튜터</h1>
+        <p className="text-gray-500 mt-2">오늘 배운 내용을 AI와 함께 복습하세요</p>
+      </div>
 
-export default function StudentPage() {
-  const [authed, setAuthed] = useState(false);
-  const [pageState, setPageState] = useState<PageState>("form");
-  const [sessionId, setSessionId] = useState<number | null>(null);
-  const [studentName, setStudentName] = useState("");
-  const [subject, setSubject] = useState("");
-  const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
-  const [summary, setSummary] = useState("");
-  const [errorMsg, setErrorMsg] = useState("");
-  const [elapsedSeconds, setElapsedSeconds] = useState(0);
-  const [isRecording, setIsRecording] = useState(false);
-  const [aiSpeaking, setAiSpeaking] = useState(false);
-
-  const webrtcRef = useRef<WebRTCSession | null>(null);
-  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const nudgeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    if (!ACCESS_PASSWORD || sessionStorage.getItem(ACCESS_AUTH_KEY) === "1") {
-      setAuthed(true);
-    }
-  }, []);
-
-  // 탭 닫힘 감지: active 세션을 best-effort로 abandoned 처리
-  // (sendBeacon은 페이지 unload 중에도 안정적으로 전송됨)
-  // visibilitychange는 단순 탭 전환에도 발생해서 false positive 위험 — 사용 안 함
-  // 모바일 강제 종료 등 잡히지 않는 케이스는 백엔드의 2시간 타임아웃으로 정리됨
-  useEffect(() => {
-    if (!sessionId || pageState !== "conversation") return;
-
-    const onBeforeUnload = () => {
-      try {
-        navigator.sendBeacon(`${API}/sessions/${sessionId}/abandon`);
-      } catch {
-        // 실패해도 무시 — 백엔드 타임아웃으로 자동 정리됨
-      }
-    };
-
-    window.addEventListener("beforeunload", onBeforeUnload);
-    return () => window.removeEventListener("beforeunload", onBeforeUnload);
-  }, [sessionId, pageState]);
-
-  // 경과 타이머
-  useEffect(() => {
-    if (pageState === "conversation") {
-      timerRef.current = setInterval(() => {
-        setElapsedSeconds((prev) => prev + 1);
-      }, 1000);
-    }
-    return () => {
-      if (timerRef.current) clearInterval(timerRef.current);
-    };
-  }, [pageState]);
-
-  // 독려 타이머: AI가 말 끝낸 후 30초 동안 학생 반응 없으면 독려
-  const resetNudgeTimer = useCallback(() => {
-    if (nudgeTimerRef.current) clearTimeout(nudgeTimerRef.current);
-    nudgeTimerRef.current = null;
-  }, []);
-
-  const startNudgeTimer = useCallback(() => {
-    resetNudgeTimer();
-    nudgeTimerRef.current = setTimeout(() => {
-      if (webrtcRef.current) {
-        webrtcRef.current.nudgeStudent();
-      }
-    }, NUDGE_TIMEOUT_MS);
-  }, [resetNudgeTimer]);
-
-  // AI 말하기 상태 변경 처리
-  const handleAiSpeakingChange = useCallback((speaking: boolean) => {
-    setAiSpeaking(speaking);
-    if (!speaking) {
-      // AI가 말 끝남 → 독려 타이머 시작
-      startNudgeTimer();
-    } else {
-      // AI가 말하는 중 → 독려 타이머 리셋
-      resetNudgeTimer();
-    }
-  }, [startNudgeTimer, resetNudgeTimer]);
-
-  // PTT 토글
-  const handleToggleRecording = useCallback(() => {
-    if (!webrtcRef.current) return;
-
-    if (isRecording) {
-      // 녹음 종료 → 마이크 off + 오디오 커밋 + AI 응답 요청
-      webrtcRef.current.setMicEnabled(false);
-      webrtcRef.current.commitAudioAndRespond();
-      setIsRecording(false);
-      resetNudgeTimer();
-    } else {
-      // 녹음 시작 → AI 응답 중단 + 마이크 on
-      webrtcRef.current.cancelAiResponse();
-      webrtcRef.current.setMicEnabled(true);
-      setIsRecording(true);
-      setAiSpeaking(false);
-      resetNudgeTimer();
-    }
-  }, [isRecording, resetNudgeTimer]);
-
-  // 대화 시작
-  const handleStart = useCallback(async (name: string, subj: string) => {
-    setStudentName(name);
-    setSubject(subj);
-    setTranscript([]);
-    setElapsedSeconds(0);
-    setIsRecording(false);
-    setAiSpeaking(false);
-    setPageState("connecting");
-
-    try {
-      // 1. 세션 생성
-      const sessionRes = await apiFetch(`/sessions/`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ student_name: name, subject: subj }),
-      });
-
-      if (!sessionRes.ok) throw new Error("세션 생성 실패");
-      const sessionData = await sessionRes.json();
-      setSessionId(sessionData.id);
-
-      // 2. 임시 키 발급
-      const tokenRes = await apiFetch(`/api/session/token`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ session_id: sessionData.id }),
-      });
-
-      if (!tokenRes.ok) throw new Error("임시 키 발급 실패");
-      const tokenData = await tokenRes.json();
-
-      // 3. WebRTC 연결
-      const session = await startWebRTC(tokenData.client_secret, {
-        onConnected: () => setPageState("conversation"),
-        onTranscript: (entries) => setTranscript(entries),
-        onError: (error) => {
-          setErrorMsg(error);
-          setPageState("error");
-        },
-        onDisconnected: () => {
-          // 의도적 종료가 아닌 경우만 처리
-        },
-        onAiSpeakingChange: handleAiSpeakingChange,
-      });
-
-      webrtcRef.current = session;
-    } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : "연결에 실패했습니다");
-      setPageState("error");
-    }
-  }, [handleAiSpeakingChange]);
-
-  // 대화 종료
-  const handleEnd = useCallback(async () => {
-    resetNudgeTimer();
-
-    // 녹음 데이터 먼저 가져오기 (disconnect 전에)
-    let audioBlob: Blob | null = null;
-    if (webrtcRef.current) {
-      audioBlob = await webrtcRef.current.getRecordingBlob();
-      webrtcRef.current.disconnect();
-      webrtcRef.current = null;
-    }
-
-    if (!sessionId) return;
-    setPageState("ending");
-
-    // 트랜스크립트를 텍스트로 변환
-    const transcriptText = transcript
-      .map((e) => `${e.role === "user" ? "학생" : "AI 선생님"}: ${e.text}`)
-      .join("\n");
-
-    try {
-      // 세션 종료 + 트랜스크립트 + 오디오 전송 (multipart/form-data)
-      const formData = new FormData();
-      formData.append("transcript", transcriptText);
-      formData.append("duration_seconds", String(elapsedSeconds));
-      if (audioBlob) {
-        formData.append("audio", audioBlob, "session-audio.webm");
-      }
-
-      await apiFetch(`/sessions/${sessionId}/end`, {
-        method: "POST",
-        body: formData,
-      });
-
-      // 요약 생성 완료 대기 (폴링)
-      const maxAttempts = 60;
-      for (let i = 0; i < maxAttempts; i++) {
-        await new Promise((r) => setTimeout(r, 2000));
-        const res = await apiFetch(`/sessions/${sessionId}`);
-        const data = await res.json();
-
-        if (data.status === "completed") {
-          setSummary(data.summary);
-          setPageState("done");
-          return;
-        }
-        if (data.status === "failed") {
-          setErrorMsg(data.summary || "요약 생성에 실패했습니다");
-          setPageState("error");
-          return;
-        }
-      }
-
-      setErrorMsg("요약 생성 시간이 초과되었습니다");
-      setPageState("error");
-    } catch {
-      setErrorMsg("세션 종료 중 오류가 발생했습니다");
-      setPageState("error");
-    }
-  }, [sessionId, transcript, elapsedSeconds, resetNudgeTimer]);
-
-  // 새 세션
-  const handleNewSession = () => {
-    setPageState("form");
-    setSessionId(null);
-    setTranscript([]);
-    setSummary("");
-    setErrorMsg("");
-    setElapsedSeconds(0);
-    setIsRecording(false);
-    setAiSpeaking(false);
-  };
-
-  if (!authed) {
-    return <AccessGate onAuth={() => setAuthed(true)} />;
-  }
-
-  return (
-    <div className="max-w-lg mx-auto px-4 py-8">
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
-        {/* 제목 */}
-        <h1 className="text-xl font-bold text-gray-800 mb-6">
-          {pageState === "form" && "AI 선생님과 복습하기"}
-          {pageState === "connecting" && "연결 중..."}
-          {pageState === "conversation" && "AI 선생님과 대화 중"}
-          {pageState === "ending" && "요약 생성 중..."}
-          {pageState === "done" && "복습 완료"}
-          {pageState === "error" && "오류 발생"}
-        </h1>
-
-        {/* Form */}
-        {pageState === "form" && (
-          <SessionForm onSubmit={handleStart} loading={false} />
-        )}
-
-        {/* Connecting */}
-        {pageState === "connecting" && (
-          <div className="text-center py-12">
-            <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-            <p className="text-gray-500 text-sm">
-              AI 선생님에게 연결하고 있습니다...
-            </p>
-          </div>
-        )}
-
-        {/* Conversation */}
-        {pageState === "conversation" && (
-          <VoiceSession
-            status="connected"
-            transcript={transcript}
-            elapsedSeconds={elapsedSeconds}
-            isRecording={isRecording}
-            aiSpeaking={aiSpeaking}
-            onEnd={handleEnd}
-            onToggleRecording={handleToggleRecording}
-          />
-        )}
-
-        {/* Ending */}
-        {pageState === "ending" && (
-          <div className="text-center py-12">
-            <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-            <p className="text-gray-500 text-sm">
-              대화 내용을 요약하고 있습니다...
-            </p>
-          </div>
-        )}
-
-        {/* Done */}
-        {pageState === "done" && (
-          <SessionSummary
-            summary={summary}
-            studentName={studentName}
-            subject={subject}
-            duration={elapsedSeconds}
-            onNewSession={handleNewSession}
-          />
-        )}
-
-        {/* Error */}
-        {pageState === "error" && (
-          <div className="space-y-4">
-            <div className="bg-red-50 border border-red-200 rounded-xl p-4">
-              <p className="text-red-700 text-sm">{errorMsg}</p>
+      <div className="grid gap-5">
+        {/* 실시간 대화 */}
+        <Link href="/realtime" className="group block bg-white border border-gray-200 rounded-2xl p-6 hover:border-blue-300 hover:shadow-sm transition">
+          <div className="flex items-start gap-4">
+            <div className="w-12 h-12 bg-blue-50 rounded-xl flex items-center justify-center shrink-0 group-hover:bg-blue-100 transition">
+              <svg className="w-6 h-6 text-blue-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z" />
+              </svg>
             </div>
-            <button
-              onClick={handleNewSession}
-              className="w-full py-3 bg-gray-600 text-white font-medium rounded-lg hover:bg-gray-700 transition"
-            >
-              다시 시작
-            </button>
+            <div>
+              <h2 className="text-lg font-semibold text-gray-800 mb-1">실시간 대화</h2>
+              <p className="text-sm text-gray-500 leading-relaxed">
+                AI 튜터와 음성으로 직접 대화하며 복습합니다. 오늘 배운 내용을 말로 설명해보고,
+                부족한 부분은 AI의 질문과 피드백으로 채워나갑니다.
+              </p>
+              <span className="inline-block mt-3 text-xs font-medium text-blue-600 bg-blue-50 px-2.5 py-1 rounded-full">음성 · 실시간</span>
+            </div>
           </div>
-        )}
+        </Link>
+
+        {/* 복습 녹음 */}
+        <Link href="/record" className="group block bg-white border border-gray-200 rounded-2xl p-6 hover:border-green-300 hover:shadow-sm transition">
+          <div className="flex items-start gap-4">
+            <div className="w-12 h-12 bg-green-50 rounded-xl flex items-center justify-center shrink-0 group-hover:bg-green-100 transition">
+              <svg className="w-6 h-6 text-green-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19V6l12-3v13M9 19c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zm12-3c0 1.105-1.343 2-3 2s-3-.895-3-2 1.343-2 3-2 3 .895 3 2zM9 10l12-3" />
+              </svg>
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold text-gray-800 mb-1">복습 녹음</h2>
+              <p className="text-sm text-gray-500 leading-relaxed">
+                배운 내용을 혼자 말로 정리하고 녹음해 선생님께 제출합니다. AI가 자동으로
+                전사하여 선생님이 학생의 이해도를 빠르게 파악할 수 있습니다.
+              </p>
+              <span className="inline-block mt-3 text-xs font-medium text-green-600 bg-green-50 px-2.5 py-1 rounded-full">녹음 · 제출</span>
+            </div>
+          </div>
+        </Link>
       </div>
     </div>
-  );
+  )
 }
