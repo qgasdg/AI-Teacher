@@ -1,5 +1,7 @@
 "use client";
 
+import ReactMarkdown from "react-markdown";
+
 interface SessionSummaryProps {
   summary: string;
   studentName: string;
@@ -59,8 +61,22 @@ export default function SessionSummary({
 
       <div className="bg-white border border-gray-200 rounded-xl p-5">
         <h3 className="font-medium text-gray-800 mb-3">AI 복습 요약</h3>
-        <div className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap">
-          {summary}
+        <div className="text-sm text-gray-700 leading-relaxed">
+          <ReactMarkdown
+            components={{
+              h1: ({ children }) => <h1 className="text-base font-bold text-gray-800 mt-4 mb-1">{children}</h1>,
+              h2: ({ children }) => <h2 className="text-sm font-bold text-gray-800 mt-3 mb-1">{children}</h2>,
+              h3: ({ children }) => <h3 className="text-sm font-semibold text-gray-800 mt-2 mb-0.5">{children}</h3>,
+              strong: ({ children }) => <strong className="font-semibold text-gray-800">{children}</strong>,
+              ul: ({ children }) => <ul className="list-disc list-inside my-1 space-y-0.5">{children}</ul>,
+              ol: ({ children }) => <ol className="list-decimal list-inside my-1 space-y-0.5">{children}</ol>,
+              li: ({ children }) => <li className="ml-2">{children}</li>,
+              p: ({ children }) => <p className="mb-1.5">{children}</p>,
+              hr: () => <hr className="my-3 border-gray-200" />,
+            }}
+          >
+            {summary}
+          </ReactMarkdown>
         </div>
       </div>
 
