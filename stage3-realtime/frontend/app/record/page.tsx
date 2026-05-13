@@ -2,6 +2,9 @@
 
 import { useState, useRef, useCallback, useEffect } from 'react'
 import { apiFetch } from '@/lib/api'
+import StudentGate from '@/components/StudentGate'
+import type { StudentIdentity } from '@/hooks/useStudentIdentity'
+
 const ACCESS_PASSWORD = process.env.NEXT_PUBLIC_ACCESS_PASSWORD || ''
 const ACCESS_AUTH_KEY = 'access_authed'
 
@@ -49,10 +52,8 @@ function AccessGate({ onAuth }: { onAuth: () => void }) {
   )
 }
 
-export default function RecordPage() {
-  const [authed, setAuthed] = useState(false)
+function RecordForm({ student }: { student: StudentIdentity }) {
   const [pageState, setPageState] = useState<PageState>('form')
-  const [studentName, setStudentName] = useState('')
   const [question, setQuestion] = useState('')
   const [isRecording, setIsRecording] = useState(false)
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null)
@@ -62,12 +63,6 @@ export default function RecordPage() {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const chunksRef = useRef<Blob[]>([])
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
-
-  useEffect(() => {
-    if (!ACCESS_PASSWORD || sessionStorage.getItem(ACCESS_AUTH_KEY) === '1') {
-      setAuthed(true)
-    }
-  }, [])
 
   const startRecording = useCallback(async () => {
     try {
@@ -104,12 +99,12 @@ export default function RecordPage() {
   }, [])
 
   const handleSubmit = async () => {
-    if (!audioBlob || !studentName || !question.trim()) return
+    if (!audioBlob || !question.trim()) return
     setPageState('uploading')
     setError('')
 
     const formData = new FormData()
-    formData.append('student_name', studentName)
+    formData.append('student_name', `${student.name} (${student.grade})`)
     formData.append('question_number', question.trim())
     formData.append('audio', audioBlob, 'recording.webm')
 
@@ -117,7 +112,6 @@ export default function RecordPage() {
       const res = await apiFetch('/recordings/', { method: 'POST', body: formData })
       if (!res.ok) throw new Error(`서버 오류: ${res.status}`)
       await res.json()
-      // 전사는 서버에서 백그라운드 처리 — 업로드 성공 즉시 완료 처리
       setPageState('done')
     } catch (e) {
       setError(e instanceof Error ? e.message : '알 수 없는 오류')
@@ -136,6 +130,115 @@ export default function RecordPage() {
   const formatTime = (s: number) =>
     `${String(Math.floor(s / 60)).padStart(2, '0')}:${String(s % 60).padStart(2, '0')}`
 
+  if (pageState === 'uploading') {
+    return <StatusCard title="전송 중..." desc="녹음 파일을 업로드하고 있어요." spinner />
+  }
+
+  if (pageState === 'done') {
+    return (
+      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 flex flex-col gap-4">
+        <div className="text-center">
+          <span className="text-4xl">✅</span>
+          <h2 className="text-xl font-bold text-gray-800 mt-2">전송 완료!</h2>
+          <p className="text-gray-500 text-sm">
+            {student.name}님의 복습 녹음이 선생님께 전달되었어요.
+          </p>
+        </div>
+        <button
+          onClick={reset}
+          className="w-full border border-gray-200 text-gray-600 py-2 rounded-xl hover:bg-gray-50 transition text-sm"
+        >
+          다른 내용 녹음하기
+        </button>
+      </div>
+    )
+  }
+
+  if (pageState === 'error') {
+    return (
+      <div className="bg-white rounded-2xl shadow-sm border border-red-100 p-6 text-center">
+        <span className="text-4xl">⚠️</span>
+        <h2 className="text-xl font-bold text-gray-800 mt-2">오류 발생</h2>
+        <p className="text-red-500 text-sm mt-1">{error}</p>
+        <button
+          onClick={reset}
+          className="mt-4 px-6 py-2 bg-gray-100 rounded-lg text-gray-600 hover:bg-gray-200 transition text-sm"
+        >
+          다시 시도
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 flex flex-col gap-5">
+      {/* 학습 주제 */}
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">학습 주제</label>
+        <input
+          type="text"
+          value={question}
+          onChange={(e) => setQuestion(e.target.value)}
+          placeholder="예: 수학 - 이차방정식, 영어 본문 3과"
+          disabled={isRecording}
+          className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 disabled:bg-gray-50 disabled:text-gray-400"
+        />
+      </div>
+
+      {/* 녹음 컨트롤 */}
+      <div className="border-t pt-4 flex flex-col items-center gap-3">
+        {isRecording ? (
+          <>
+            <div className="flex items-center gap-2 text-red-500 font-medium">
+              <span className="w-2.5 h-2.5 bg-red-500 rounded-full animate-pulse" />
+              녹음 중 — {formatTime(elapsedSec)}
+            </div>
+            <button
+              onClick={stopRecording}
+              className="w-full py-3 bg-red-500 text-white font-medium rounded-xl hover:bg-red-600 transition"
+            >
+              녹음 중지
+            </button>
+          </>
+        ) : (
+          <button
+            onClick={startRecording}
+            disabled={!question.trim()}
+            className="w-full py-3 bg-blue-600 text-white font-medium rounded-xl hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition"
+          >
+            녹음 시작
+          </button>
+        )}
+
+        {audioBlob && !isRecording && (
+          <div className="w-full bg-green-50 border border-green-200 rounded-lg p-3 text-sm text-green-700 text-center">
+            녹음 완료 ({formatTime(elapsedSec)}) — 아래 버튼으로 전송하세요
+          </div>
+        )}
+      </div>
+
+      {error && <p className="text-red-500 text-sm text-center">{error}</p>}
+
+      <button
+        onClick={handleSubmit}
+        disabled={!audioBlob || !question.trim() || isRecording}
+        className="w-full bg-gray-800 text-white py-3 rounded-xl font-medium hover:bg-gray-900 disabled:opacity-40 disabled:cursor-not-allowed transition"
+      >
+        선생님께 전송
+      </button>
+    </div>
+  )
+}
+
+export default function RecordPage() {
+  const [authed, setAuthed] = useState(false)
+
+  useEffect(() => {
+    if (!ACCESS_PASSWORD || sessionStorage.getItem(ACCESS_AUTH_KEY) === '1') {
+      setAuthed(true)
+    }
+  }, [])
+
   if (!authed) return <AccessGate onAuth={() => setAuthed(true)} />
 
   return (
@@ -145,112 +248,9 @@ export default function RecordPage() {
         <p className="text-gray-500 text-sm mt-1">오늘 배운 내용을 자신의 말로 설명하고 녹음해 주세요</p>
       </div>
 
-      {(pageState === 'form' || pageState === 'recording') && (
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 flex flex-col gap-5">
-          {/* 학생 이름 */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">학생 이름</label>
-            <input
-              type="text"
-              value={studentName}
-              onChange={(e) => setStudentName(e.target.value)}
-              placeholder="홍길동"
-              disabled={isRecording}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 disabled:bg-gray-50 disabled:text-gray-400"
-            />
-          </div>
-
-          {/* 학습 주제 자유 입력 */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">학습 주제</label>
-            <input
-              type="text"
-              value={question}
-              onChange={(e) => setQuestion(e.target.value)}
-              placeholder="예: 수학 - 이차방정식, 영어 본문 3과"
-              disabled={isRecording}
-              className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-300 disabled:bg-gray-50 disabled:text-gray-400"
-            />
-          </div>
-
-          {/* 녹음 컨트롤 */}
-          <div className="border-t pt-4 flex flex-col items-center gap-3">
-            {isRecording ? (
-              <>
-                <div className="flex items-center gap-2 text-red-500 font-medium">
-                  <span className="w-2.5 h-2.5 bg-red-500 rounded-full animate-pulse" />
-                  녹음 중 — {formatTime(elapsedSec)}
-                </div>
-                <button
-                  onClick={stopRecording}
-                  className="w-full py-3 bg-red-500 text-white font-medium rounded-xl hover:bg-red-600 transition"
-                >
-                  녹음 중지
-                </button>
-              </>
-            ) : (
-              <button
-                onClick={startRecording}
-                disabled={!studentName || !question.trim()}
-                className="w-full py-3 bg-blue-600 text-white font-medium rounded-xl hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed transition"
-              >
-                녹음 시작
-              </button>
-            )}
-
-            {audioBlob && !isRecording && (
-              <div className="w-full bg-green-50 border border-green-200 rounded-lg p-3 text-sm text-green-700 text-center">
-                녹음 완료 ({formatTime(elapsedSec)}) — 아래 버튼으로 전송하세요
-              </div>
-            )}
-          </div>
-
-          {error && <p className="text-red-500 text-sm text-center">{error}</p>}
-
-          <button
-            onClick={handleSubmit}
-            disabled={!audioBlob || !studentName || !question.trim() || isRecording}
-            className="w-full bg-gray-800 text-white py-3 rounded-xl font-medium hover:bg-gray-900 disabled:opacity-40 disabled:cursor-not-allowed transition"
-          >
-            선생님께 전송
-          </button>
-        </div>
-      )}
-
-      {pageState === 'uploading' && <StatusCard title="전송 중..." desc="녹음 파일을 업로드하고 있어요." spinner />}
-
-      {pageState === 'done' && (
-        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 flex flex-col gap-4">
-          <div className="text-center">
-            <span className="text-4xl">✅</span>
-            <h2 className="text-xl font-bold text-gray-800 mt-2">전송 완료!</h2>
-            <p className="text-gray-500 text-sm">
-              {studentName}님의 복습 녹음이 선생님께 전달되었어요.
-            </p>
-          </div>
-
-          <button
-            onClick={reset}
-            className="w-full border border-gray-200 text-gray-600 py-2 rounded-xl hover:bg-gray-50 transition text-sm"
-          >
-            다른 내용 녹음하기
-          </button>
-        </div>
-      )}
-
-      {pageState === 'error' && (
-        <div className="bg-white rounded-2xl shadow-sm border border-red-100 p-6 text-center">
-          <span className="text-4xl">⚠️</span>
-          <h2 className="text-xl font-bold text-gray-800 mt-2">오류 발생</h2>
-          <p className="text-red-500 text-sm mt-1">{error}</p>
-          <button
-            onClick={reset}
-            className="mt-4 px-6 py-2 bg-gray-100 rounded-lg text-gray-600 hover:bg-gray-200 transition text-sm"
-          >
-            다시 시도
-          </button>
-        </div>
-      )}
+      <StudentGate>
+        {(student) => <RecordForm student={student} />}
+      </StudentGate>
     </div>
   )
 }
