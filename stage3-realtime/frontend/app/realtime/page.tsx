@@ -4,8 +4,10 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import SessionForm from "@/components/SessionForm";
 import VoiceSession from "@/components/VoiceSession";
 import SessionSummary from "@/components/SessionSummary";
+import StudentGate from "@/components/StudentGate";
 import { startWebRTC, type TranscriptEntry, type WebRTCSession } from "@/lib/webrtc";
 import { apiFetch, API_URL as API } from "@/lib/api";
+import type { StudentIdentity } from "@/hooks/useStudentIdentity";
 
 const ACCESS_PASSWORD = process.env.NEXT_PUBLIC_ACCESS_PASSWORD || "";
 const ACCESS_AUTH_KEY = "access_authed";
@@ -58,11 +60,9 @@ function AccessGate({ onAuth }: { onAuth: () => void }) {
   );
 }
 
-export default function StudentPage() {
-  const [authed, setAuthed] = useState(false);
+function RealtimeSession({ student }: { student: StudentIdentity }) {
   const [pageState, setPageState] = useState<PageState>("form");
   const [sessionId, setSessionId] = useState<number | null>(null);
-  const [studentName, setStudentName] = useState("");
   const [subject, setSubject] = useState("");
   const [transcript, setTranscript] = useState<TranscriptEntry[]>([]);
   const [summary, setSummary] = useState("");
@@ -74,12 +74,6 @@ export default function StudentPage() {
   const webrtcRef = useRef<WebRTCSession | null>(null);
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const nudgeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(() => {
-    if (!ACCESS_PASSWORD || sessionStorage.getItem(ACCESS_AUTH_KEY) === "1") {
-      setAuthed(true);
-    }
-  }, []);
 
   // 탭 닫힘 감지: active 세션을 best-effort로 abandoned 처리
   // (sendBeacon은 페이지 unload 중에도 안정적으로 전송됨)
@@ -160,8 +154,8 @@ export default function StudentPage() {
   }, [isRecording, resetNudgeTimer]);
 
   // 대화 시작
-  const handleStart = useCallback(async (name: string, subj: string) => {
-    setStudentName(name);
+  const handleStart = useCallback(async (subj: string) => {
+    const name = `${student.name} (${student.grade})`;
     setSubject(subj);
     setTranscript([]);
     setElapsedSeconds(0);
@@ -285,87 +279,97 @@ export default function StudentPage() {
     setAiSpeaking(false);
   };
 
-  if (!authed) {
-    return <AccessGate onAuth={() => setAuthed(true)} />;
-  }
+  return (
+    <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
+      {/* 제목 */}
+      <h1 className="text-xl font-bold text-gray-800 mb-6">
+        {pageState === "form" && "AI 튜터와 복습하기"}
+        {pageState === "connecting" && "연결 중..."}
+        {pageState === "conversation" && "AI 튜터와 대화 중"}
+        {pageState === "ending" && "요약 생성 중..."}
+        {pageState === "done" && "복습 완료"}
+        {pageState === "error" && "오류 발생"}
+      </h1>
+
+      {/* Form */}
+      {pageState === "form" && (
+        <SessionForm studentName={student.name} onSubmit={handleStart} loading={false} />
+      )}
+
+      {/* Connecting */}
+      {pageState === "connecting" && (
+        <div className="text-center py-12">
+          <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+          <p className="text-gray-500 text-sm">AI 튜터에게 연결하고 있습니다...</p>
+        </div>
+      )}
+
+      {/* Conversation */}
+      {pageState === "conversation" && (
+        <VoiceSession
+          status="connected"
+          transcript={transcript}
+          elapsedSeconds={elapsedSeconds}
+          isRecording={isRecording}
+          aiSpeaking={aiSpeaking}
+          onEnd={handleEnd}
+          onToggleRecording={handleToggleRecording}
+        />
+      )}
+
+      {/* Ending */}
+      {pageState === "ending" && (
+        <div className="text-center py-12">
+          <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
+          <p className="text-gray-500 text-sm">대화 내용을 요약하고 있습니다...</p>
+        </div>
+      )}
+
+      {/* Done */}
+      {pageState === "done" && (
+        <SessionSummary
+          summary={summary}
+          studentName={student.name}
+          subject={subject}
+          duration={elapsedSeconds}
+          onNewSession={handleNewSession}
+        />
+      )}
+
+      {/* Error */}
+      {pageState === "error" && (
+        <div className="space-y-4">
+          <div className="bg-red-50 border border-red-200 rounded-xl p-4">
+            <p className="text-red-700 text-sm">{errorMsg}</p>
+          </div>
+          <button
+            onClick={handleNewSession}
+            className="w-full py-3 bg-gray-600 text-white font-medium rounded-lg hover:bg-gray-700 transition"
+          >
+            다시 시작
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+export default function RealtimePage() {
+  const [authed, setAuthed] = useState(false);
+
+  useEffect(() => {
+    if (!ACCESS_PASSWORD || sessionStorage.getItem(ACCESS_AUTH_KEY) === "1") {
+      setAuthed(true);
+    }
+  }, []);
+
+  if (!authed) return <AccessGate onAuth={() => setAuthed(true)} />;
 
   return (
     <div className="max-w-lg mx-auto px-4 py-8">
-      <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6">
-        {/* 제목 */}
-        <h1 className="text-xl font-bold text-gray-800 mb-6">
-          {pageState === "form" && "AI 선생님과 복습하기"}
-          {pageState === "connecting" && "연결 중..."}
-          {pageState === "conversation" && "AI 선생님과 대화 중"}
-          {pageState === "ending" && "요약 생성 중..."}
-          {pageState === "done" && "복습 완료"}
-          {pageState === "error" && "오류 발생"}
-        </h1>
-
-        {/* Form */}
-        {pageState === "form" && (
-          <SessionForm onSubmit={handleStart} loading={false} />
-        )}
-
-        {/* Connecting */}
-        {pageState === "connecting" && (
-          <div className="text-center py-12">
-            <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-            <p className="text-gray-500 text-sm">
-              AI 선생님에게 연결하고 있습니다...
-            </p>
-          </div>
-        )}
-
-        {/* Conversation */}
-        {pageState === "conversation" && (
-          <VoiceSession
-            status="connected"
-            transcript={transcript}
-            elapsedSeconds={elapsedSeconds}
-            isRecording={isRecording}
-            aiSpeaking={aiSpeaking}
-            onEnd={handleEnd}
-            onToggleRecording={handleToggleRecording}
-          />
-        )}
-
-        {/* Ending */}
-        {pageState === "ending" && (
-          <div className="text-center py-12">
-            <div className="w-10 h-10 border-4 border-blue-600 border-t-transparent rounded-full animate-spin mx-auto mb-4" />
-            <p className="text-gray-500 text-sm">
-              대화 내용을 요약하고 있습니다...
-            </p>
-          </div>
-        )}
-
-        {/* Done */}
-        {pageState === "done" && (
-          <SessionSummary
-            summary={summary}
-            studentName={studentName}
-            subject={subject}
-            duration={elapsedSeconds}
-            onNewSession={handleNewSession}
-          />
-        )}
-
-        {/* Error */}
-        {pageState === "error" && (
-          <div className="space-y-4">
-            <div className="bg-red-50 border border-red-200 rounded-xl p-4">
-              <p className="text-red-700 text-sm">{errorMsg}</p>
-            </div>
-            <button
-              onClick={handleNewSession}
-              className="w-full py-3 bg-gray-600 text-white font-medium rounded-lg hover:bg-gray-700 transition"
-            >
-              다시 시작
-            </button>
-          </div>
-        )}
-      </div>
+      <StudentGate>
+        {(student) => <RealtimeSession student={student} />}
+      </StudentGate>
     </div>
   );
 }
