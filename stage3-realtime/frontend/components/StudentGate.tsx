@@ -7,7 +7,7 @@ const GRADE_GROUPS = [
   { label: '초등', grades: ['초1', '초2', '초3', '초4', '초5', '초6'] },
   { label: '중학', grades: ['중1', '중2', '중3'] },
   { label: '고등', grades: ['고1', '고2', '고3'] },
-  { label: '기타', grades: ['재수', 'N수'] },
+  { label: '기타', grades: ['기타'] },
 ]
 
 interface Props {
