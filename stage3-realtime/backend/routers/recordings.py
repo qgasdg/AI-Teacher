@@ -16,6 +16,11 @@ from database import get_db, AsyncSessionLocal
 from models import Recording
 from services.audio import webm_to_wav_chunks
 from services.recording_analyzer import analyze_recording
+from services.supabase_client import find_student
+from services.kakao import send_kakao
+
+import logging
+logger = logging.getLogger(__name__)
 
 # 모든 /recordings 엔드포인트 인증 필요 (예외 없음)
 router = APIRouter(prefix="/recordings", tags=["recordings"], dependencies=[Depends(verify_secret)])
@@ -131,6 +136,36 @@ async def transcribe_recording(recording_id: int):
             recording.transcript = f"전사 실패: {str(e)}"
 
         await db.commit()
+
+        # 카카오 발송 (전사/분석 완료 후)
+        if recording.status == "completed":
+            await _send_recording_kakao(recording)
+
+
+async def _send_recording_kakao(recording) -> None:
+    """복습 녹음 완료 후 학생에게 카카오 발송."""
+    raw = recording.student_name or ""
+    if " (" in raw and raw.endswith(")"):
+        name, grade = raw[:-1].split(" (", 1)
+    else:
+        name, grade = raw, None
+
+    student = await find_student(name, grade)
+    if not student:
+        return
+
+    phone = student.get("phone") or ""
+    if not phone:
+        logger.warning(f"카카오 스킵: '{name}' 전화번호 없음")
+        return
+
+    message = (
+        f"[AI 튜터] 복습 녹음 분석 완료\n"
+        f"학생: {name}\n"
+        f"주제: {recording.question_number}\n\n"
+        f"{recording.feedback or '분석 결과 없음'}"
+    )
+    await send_kakao(phone, message)
 
 
 # --- Endpoints ---
