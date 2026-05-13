@@ -13,6 +13,8 @@ from auth import verify_secret
 from database import get_db, AsyncSessionLocal
 from models import RealtimeSession
 from services.summarizer import summarize_conversation
+from services.supabase_client import find_student
+from services.kakao import send_kakao
 
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
@@ -60,6 +62,38 @@ class SessionResponse(BaseModel):
         from_attributes = True
 
 
+# --- Kakao Helper ---
+
+import logging
+logger = logging.getLogger(__name__)
+
+async def _send_session_kakao(session: RealtimeSession) -> None:
+    """실시간 대화 요약 완료 후 학생에게 카카오 발송."""
+    # 이름에서 순수 이름만 추출 (예: "홍길동 (고2)" → "홍길동", grade → "고2")
+    raw = session.student_name or ""
+    if " (" in raw and raw.endswith(")"):
+        name, grade = raw[:-1].split(" (", 1)
+    else:
+        name, grade = raw, None
+
+    student = await find_student(name, grade)
+    if not student:
+        return
+
+    phone = student.get("phone") or ""
+    if not phone:
+        logger.warning(f"카카오 스킵: '{name}' 전화번호 없음")
+        return
+
+    message = (
+        f"[AI 튜터] 복습 완료\n"
+        f"학생: {name}\n"
+        f"과목: {session.subject}\n\n"
+        f"{session.summary}"
+    )
+    await send_kakao(phone, message)
+
+
 # --- Background Task ---
 
 
@@ -86,6 +120,10 @@ async def generate_summary(session_id: int):
             session.status = "failed"
 
         await db.commit()
+
+        # 카카오 발송 (요약 완료 후)
+        if session.status == "completed":
+            await _send_session_kakao(session)
 
 
 # --- Endpoints ---
