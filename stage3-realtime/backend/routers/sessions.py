@@ -76,6 +76,10 @@ async def _send_session_kakao(session: RealtimeSession) -> None:
     else:
         name, grade = raw, None
 
+    # '기타' 선택 시 grade 필터 없이 이름만으로 조회
+    if grade == "기타":
+        grade = None
+
     student = await find_student(name, grade)
     if not student:
         return
