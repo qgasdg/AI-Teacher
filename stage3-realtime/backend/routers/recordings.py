@@ -92,6 +92,19 @@ async def transcribe_recording(recording_id: int):
             # 1+2) webm → wav 청크 분할
             wav_chunks = await webm_to_wav_chunks(recording.audio_data)
 
+            # 너무 짧은 녹음(< 3초)은 환각 방지를 위해 STT 스킵
+            # 16kHz mono PCM: 1초 = 16000 samples × 2 bytes = 32,000 bytes
+            MIN_DURATION_BYTES = 32_000 * 3  # 3초
+            total_bytes = sum(len(c) for c in wav_chunks)
+            if total_bytes < MIN_DURATION_BYTES:
+                logger.warning(f"녹음 너무 짧음 ({total_bytes}B < {MIN_DURATION_BYTES}B) — STT 스킵")
+                recording.transcript = ""
+                recording.feedback = "녹음 시간이 너무 짧아 분석할 수 없습니다. (3초 이상 녹음해주세요)"
+                recording.status = "completed"
+                recording.completed_at = datetime.utcnow()
+                await db.commit()
+                return
+
             transcribe_prompt = (
                 "이 녹음은 학생이 오늘 배운 내용을 자신의 말로 설명하는 복습 녹음입니다. "
                 "한국어 위주이지만 과목 용어로 영어나 외래어가 섞일 수 있습니다. "
