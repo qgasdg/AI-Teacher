@@ -7,6 +7,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Form, Up
 from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy import select, update
+from sqlalchemy.orm import defer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth import verify_secret
@@ -105,7 +106,9 @@ async def generate_summary(session_id: int):
     """백그라운드에서 Claude를 사용하여 대화 요약을 생성합니다."""
     async with AsyncSessionLocal() as db:
         result = await db.execute(
-            select(RealtimeSession).where(RealtimeSession.id == session_id)
+            select(RealtimeSession)
+            .where(RealtimeSession.id == session_id)
+            .options(defer(RealtimeSession.audio_data))
         )
         session = result.scalar_one_or_none()
         if not session:
@@ -231,7 +234,9 @@ async def get_session(
 ):
     """세션 상태 및 결과를 조회합니다."""
     result = await db.execute(
-        select(RealtimeSession).where(RealtimeSession.id == session_id)
+        select(RealtimeSession)
+        .where(RealtimeSession.id == session_id)
+        .options(defer(RealtimeSession.audio_data))
     )
     session = result.scalar_one_or_none()
 
@@ -246,7 +251,9 @@ async def list_sessions(db: AsyncSession = Depends(get_db)):
     """모든 세션 목록을 조회합니다. (호출 시점에 stale active 세션을 abandoned로 정리)"""
     await _mark_abandoned_sessions(db)
     result = await db.execute(
-        select(RealtimeSession).order_by(RealtimeSession.created_at.desc())
+        select(RealtimeSession)
+        .order_by(RealtimeSession.created_at.desc())
+        .options(defer(RealtimeSession.audio_data))
     )
     sessions = result.scalars().all()
     return [_to_response(s) for s in sessions]
@@ -259,7 +266,9 @@ async def abandon_session(session_id: int, db: AsyncSession = Depends(get_db)):
     오디오/transcript는 브라우저에 있다 사라지므로 복구 불가 — status만 abandoned로 마킹.
     """
     result = await db.execute(
-        select(RealtimeSession).where(RealtimeSession.id == session_id)
+        select(RealtimeSession)
+        .where(RealtimeSession.id == session_id)
+        .options(defer(RealtimeSession.audio_data))
     )
     session = result.scalar_one_or_none()
     if not session:
@@ -275,7 +284,9 @@ async def abandon_session(session_id: int, db: AsyncSession = Depends(get_db)):
 async def delete_session(session_id: int, db: AsyncSession = Depends(get_db)):
     """세션 삭제 (오디오 + 대화 기록 + 요약)"""
     result = await db.execute(
-        select(RealtimeSession).where(RealtimeSession.id == session_id)
+        select(RealtimeSession)
+        .where(RealtimeSession.id == session_id)
+        .options(defer(RealtimeSession.audio_data))
     )
     session = result.scalar_one_or_none()
     if not session:
