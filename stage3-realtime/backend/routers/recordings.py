@@ -9,6 +9,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Form, Re
 from fastapi.responses import Response
 from pydantic import BaseModel
 from sqlalchemy import select
+from sqlalchemy.orm import defer
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth import verify_secret
@@ -221,7 +222,11 @@ async def create_recording(
 @router.get("/{recording_id}", response_model=RecordingResponse)
 async def get_recording(recording_id: int, db: AsyncSession = Depends(get_db)):
     """녹음 상태 및 결과 조회"""
-    result = await db.execute(select(Recording).where(Recording.id == recording_id))
+    result = await db.execute(
+        select(Recording)
+        .where(Recording.id == recording_id)
+        .options(defer(Recording.audio_data))
+    )
     recording = result.scalar_one_or_none()
     if not recording:
         raise HTTPException(status_code=404, detail="녹음을 찾을 수 없습니다.")
@@ -289,7 +294,11 @@ async def get_audio(
 @router.get("/", response_model=List[RecordingResponse])
 async def list_recordings(db: AsyncSession = Depends(get_db)):
     """모든 복습 녹음 목록"""
-    result = await db.execute(select(Recording).order_by(Recording.created_at.desc()))
+    result = await db.execute(
+        select(Recording)
+        .order_by(Recording.created_at.desc())
+        .options(defer(Recording.audio_data))
+    )
     return [_to_response(r) for r in result.scalars().all()]
 
 
@@ -322,7 +331,11 @@ async def retry_recording(
 @router.delete("/{recording_id}", status_code=204)
 async def delete_recording(recording_id: int, db: AsyncSession = Depends(get_db)):
     """녹음 삭제 (오디오 + 전사 + 피드백)"""
-    result = await db.execute(select(Recording).where(Recording.id == recording_id))
+    result = await db.execute(
+        select(Recording)
+        .where(Recording.id == recording_id)
+        .options(defer(Recording.audio_data))
+    )
     recording = result.scalar_one_or_none()
     if not recording:
         raise HTTPException(status_code=404, detail="녹음을 찾을 수 없습니다.")
