@@ -11,7 +11,12 @@ if DATABASE_URL.startswith("postgres://"):
 elif DATABASE_URL.startswith("postgresql://"):
     DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
 
-engine = create_async_engine(DATABASE_URL, echo=False)
+engine = create_async_engine(
+    DATABASE_URL,
+    echo=False,
+    pool_pre_ping=True,   # 유휴 후 끊긴 연결 재사용 방지
+    pool_recycle=1800,    # 30분마다 연결 교체 (Railway idle timeout 대비)
+)
 AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False)
 
 
