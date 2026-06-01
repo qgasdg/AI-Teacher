@@ -1,11 +1,8 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect } from "react";
 import ReactMarkdown from "react-markdown";
-import { apiFetch, PROXY } from "@/lib/api";
-
-// 오디오 URL도 프록시 경로 사용 — 시크릿은 서버에서만 처리됨
-const audioSrc = (path: string) => `${PROXY}${path}`;
+import { apiFetch } from "@/lib/api";
 
 // AI 출력(요약/피드백)에 들어있는 마크다운을 렌더링하기 위한 공통 컴포넌트.
 // Tailwind typography 플러그인 없이도 읽기 좋게 보이도록 element별로 className 지정.
@@ -48,7 +45,6 @@ interface Recording {
   status: string;
   created_at: string;
   completed_at: string | null;
-  has_audio: boolean;
 }
 
 const RECORDING_STATUS_LABELS: Record<string, { label: string; className: string }> = {
@@ -68,7 +64,6 @@ interface Session {
   created_at: string;
   ended_at: string | null;
   duration_seconds: number | null;
-  has_audio: boolean;
 }
 
 function parseTranscript(transcript: string): { role: "user" | "assistant"; text: string }[] {
@@ -80,102 +75,6 @@ function parseTranscript(transcript: string): { role: "user" | "assistant"; text
     }
     return { role: "assistant" as const, text: line };
   });
-}
-
-const SPEED_OPTIONS = [1.0, 1.25, 1.5];
-
-function AudioPlayer({ sessionId, duration }: { sessionId: number; duration: number }) {
-  const audioRef = useRef<HTMLAudioElement>(null);
-  const [isPlaying, setIsPlaying] = useState(false);
-  const [currentTime, setCurrentTime] = useState(0);
-  const [speedIdx, setSpeedIdx] = useState(0);
-
-  const totalDuration = duration || 0;
-
-  const togglePlay = useCallback(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-    if (isPlaying) {
-      audio.pause();
-    } else {
-      audio.play();
-    }
-  }, [isPlaying]);
-
-  const handleTimeUpdate = () => {
-    if (audioRef.current) setCurrentTime(audioRef.current.currentTime);
-  };
-
-  const handleSeek = (e: React.MouseEvent<HTMLDivElement>) => {
-    if (!audioRef.current || !totalDuration) return;
-    const rect = e.currentTarget.getBoundingClientRect();
-    const ratio = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    audioRef.current.currentTime = ratio * totalDuration;
-    setCurrentTime(ratio * totalDuration);
-  };
-
-  const formatTime = (sec: number) => {
-    const m = Math.floor(sec / 60);
-    const s = Math.floor(sec % 60);
-    return `${String(m).padStart(2, "0")}:${String(s).padStart(2, "0")}`;
-  };
-
-  const toggleSpeed = () => {
-    const next = (speedIdx + 1) % SPEED_OPTIONS.length;
-    setSpeedIdx(next);
-    if (audioRef.current) audioRef.current.playbackRate = SPEED_OPTIONS[next];
-  };
-
-  const progress = totalDuration > 0 ? (currentTime / totalDuration) * 100 : 0;
-
-  return (
-    <div className="flex items-center gap-3 bg-gray-100 rounded-lg px-4 py-3">
-      <audio
-        ref={audioRef}
-        src={audioSrc(`/sessions/${sessionId}/audio`)}
-        onTimeUpdate={handleTimeUpdate}
-        onPlay={() => setIsPlaying(true)}
-        onPause={() => setIsPlaying(false)}
-        onEnded={() => { setIsPlaying(false); setCurrentTime(0); }}
-      />
-      <button
-        onClick={togglePlay}
-        className="w-8 h-8 flex items-center justify-center rounded-full bg-blue-600 text-white hover:bg-blue-700 transition flex-shrink-0"
-      >
-        {isPlaying ? (
-          <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
-            <rect x="6" y="4" width="4" height="16" />
-            <rect x="14" y="4" width="4" height="16" />
-          </svg>
-        ) : (
-          <svg className="w-3.5 h-3.5 ml-0.5" fill="currentColor" viewBox="0 0 24 24">
-            <polygon points="5,3 19,12 5,21" />
-          </svg>
-        )}
-      </button>
-      <span className="text-xs text-gray-500 font-mono w-12 flex-shrink-0">
-        {formatTime(currentTime)}
-      </span>
-      <div
-        className="flex-1 h-2 bg-gray-300 rounded-full cursor-pointer relative"
-        onClick={handleSeek}
-      >
-        <div
-          className="h-full bg-blue-600 rounded-full transition-all duration-100"
-          style={{ width: `${progress}%` }}
-        />
-      </div>
-      <span className="text-xs text-gray-500 font-mono w-12 flex-shrink-0 text-right">
-        {formatTime(totalDuration)}
-      </span>
-      <button
-        onClick={toggleSpeed}
-        className="text-xs font-medium text-gray-600 bg-gray-200 hover:bg-gray-300 rounded px-1.5 py-0.5 flex-shrink-0 transition"
-      >
-        {SPEED_OPTIONS[speedIdx]}x
-      </button>
-    </div>
-  );
 }
 
 const STATUS_LABELS: Record<string, { label: string; className: string }> = {
@@ -284,27 +183,6 @@ export default function TeacherDashboard() {
       }
     } catch {
       alert("삭제 중 오류가 발생했습니다.");
-    }
-  };
-
-  const retryRecording = async (id: number) => {
-    // 낙관적 업데이트: 즉시 processing 상태로
-    setRecordings((prev) =>
-      prev.map((r) =>
-        r.id === id
-          ? { ...r, status: "processing", transcript: null, feedback: null }
-          : r
-      )
-    );
-    try {
-      const res = await apiFetch(`/recordings/${id}/retry`, { method: "POST" });
-      if (!res.ok) {
-        alert("재전사 요청에 실패했습니다.");
-        fetchRecordings();
-      }
-    } catch {
-      alert("재전사 중 오류가 발생했습니다.");
-      fetchRecordings();
     }
   };
 
@@ -484,19 +362,6 @@ export default function TeacherDashboard() {
               {/* 상세 내용 */}
               {isExpanded && (
                 <div className="px-5 pb-5 space-y-4 border-t border-gray-100 pt-4">
-                  {/* 오디오 플레이어 */}
-                  {session.has_audio && (
-                    <div>
-                      <h4 className="text-sm font-medium text-gray-700 mb-2">
-                        대화 녹음
-                      </h4>
-                      <AudioPlayer
-                        sessionId={session.id}
-                        duration={session.duration_seconds || 0}
-                      />
-                    </div>
-                  )}
-
                   {/* AI 복습 요약 */}
                   {session.summary && (
                     <div>
@@ -584,8 +449,6 @@ export default function TeacherDashboard() {
             };
             const isExpanded = expandedRecId === rec.id;
 
-            const canRetry = rec.has_audio && rec.status !== "processing" && rec.status !== "pending";
-
             return (
               <div
                 key={rec.id}
@@ -606,21 +469,6 @@ export default function TeacherDashboard() {
                     <span className={`text-xs px-2 py-1 rounded-full font-medium ${statusInfo.className}`}>
                       {statusInfo.label}
                     </span>
-                    {canRetry && (
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          retryRecording(rec.id);
-                        }}
-                        title="이 녹음만 재전사"
-                        className="p-1.5 rounded-md text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition active:scale-95"
-                      >
-                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                            d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-                        </svg>
-                      </button>
-                    )}
                     <button
                       onClick={() => setExpandedRecId(isExpanded ? null : rec.id)}
                       className="p-1"
@@ -637,18 +485,6 @@ export default function TeacherDashboard() {
 
                 {isExpanded && (
                   <div className="px-5 pb-5 border-t border-gray-100 pt-4 space-y-4">
-                    {/* 오디오 플레이어 */}
-                    {rec.has_audio && (
-                      <div>
-                        <h4 className="text-sm font-medium text-gray-700 mb-2">녹음 재생</h4>
-                        <audio
-                          controls
-                          src={audioSrc(`/recordings/${rec.id}/audio`)}
-                          className="w-full"
-                        />
-                      </div>
-                    )}
-
                     {/* GPT 피드백 — 취약 구간/어려워한 단어 */}
                     {rec.feedback && (
                       <div>
