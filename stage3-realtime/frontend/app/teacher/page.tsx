@@ -2,12 +2,10 @@
 
 import { useState, useEffect, useRef, useCallback } from "react";
 import ReactMarkdown from "react-markdown";
-import { apiFetch, API_URL } from "@/lib/api";
+import { apiFetch, PROXY } from "@/lib/api";
 
-// audio src처럼 헤더를 못 보내는 곳에 시크릿을 query로 붙이기 위한 헬퍼.
-const API_SECRET = process.env.NEXT_PUBLIC_API_SECRET || "";
-const audioSrc = (path: string) =>
-  API_SECRET ? `${API_URL}${path}?secret=${encodeURIComponent(API_SECRET)}` : `${API_URL}${path}`;
+// 오디오 URL도 프록시 경로 사용 — 시크릿은 서버에서만 처리됨
+const audioSrc = (path: string) => `${PROXY}${path}`;
 
 // AI 출력(요약/피드백)에 들어있는 마크다운을 렌더링하기 위한 공통 컴포넌트.
 // Tailwind typography 플러그인 없이도 읽기 좋게 보이도록 element별로 className 지정.
@@ -39,8 +37,6 @@ function Markdown({ children }: { children: string }) {
   );
 }
 
-const API = API_URL;
-const TEACHER_PASSWORD = process.env.NEXT_PUBLIC_TEACHER_PASSWORD || "teacher1234";
 const AUTH_KEY = "teacher_authed";
 
 interface Recording {
@@ -221,13 +217,23 @@ export default function TeacherDashboard() {
     if (sessionStorage.getItem(AUTH_KEY) === "1") setAuthed(true);
   }, []);
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (pwInput === TEACHER_PASSWORD) {
-      sessionStorage.setItem(AUTH_KEY, "1");
-      setAuthed(true);
-      setPwError(false);
-    } else {
+    try {
+      const res = await fetch("/api/teacher-auth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: pwInput }),
+      });
+      if (res.ok) {
+        sessionStorage.setItem(AUTH_KEY, "1");
+        setAuthed(true);
+        setPwError(false);
+      } else {
+        setPwError(true);
+        setPwInput("");
+      }
+    } catch {
       setPwError(true);
       setPwInput("");
     }

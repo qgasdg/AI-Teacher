@@ -222,9 +222,9 @@ async def list_sessions(db: AsyncSession = Depends(get_db)):
     return [_to_response(s) for s in sessions]
 
 
-@router.post("/{session_id}/abandon", status_code=204)
+@router.post("/{session_id}/abandon", status_code=204, dependencies=PROTECTED)
 async def abandon_session(session_id: int, db: AsyncSession = Depends(get_db)):
-    """학생이 탭 닫고 떠날 때 best-effort로 호출 (sendBeacon).
+    """학생이 탭 닫고 떠날 때 best-effort로 호출 (sendBeacon, 프록시 경유로 인증).
 
     오디오/transcript는 브라우저에 있다 사라지므로 복구 불가 — status만 abandoned로 마킹.
     """

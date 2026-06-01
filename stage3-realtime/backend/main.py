@@ -25,9 +25,13 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# 브라우저는 Next.js 프록시를 경유하므로 백엔드를 직접 호출하지 않음.
+# 직접 호출 가능한 origin을 FRONTEND_URL로 제한 (쉼표로 여러 개 가능).
+_origins = [o.strip() for o in os.getenv("FRONTEND_URL", "http://localhost:3001").split(",") if o.strip()]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=_origins,
     allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],

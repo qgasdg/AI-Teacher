@@ -5,7 +5,6 @@ import { apiFetch } from '@/lib/api'
 import StudentGate from '@/components/StudentGate'
 import type { StudentIdentity } from '@/hooks/useStudentIdentity'
 
-const ACCESS_PASSWORD = process.env.NEXT_PUBLIC_ACCESS_PASSWORD || ''
 const ACCESS_AUTH_KEY = 'access_authed'
 
 type PageState = 'form' | 'recording' | 'uploading' | 'done' | 'error'
@@ -14,12 +13,22 @@ function AccessGate({ onAuth }: { onAuth: () => void }) {
   const [input, setInput] = useState('')
   const [error, setError] = useState(false)
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (input === ACCESS_PASSWORD) {
-      sessionStorage.setItem(ACCESS_AUTH_KEY, '1')
-      onAuth()
-    } else {
+    try {
+      const res = await fetch('/api/access-auth', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: input }),
+      })
+      if (res.ok) {
+        sessionStorage.setItem(ACCESS_AUTH_KEY, '1')
+        onAuth()
+      } else {
+        setError(true)
+        setInput('')
+      }
+    } catch {
       setError(true)
       setInput('')
     }
@@ -234,7 +243,7 @@ export default function RecordPage() {
   const [authed, setAuthed] = useState(false)
 
   useEffect(() => {
-    if (!ACCESS_PASSWORD || sessionStorage.getItem(ACCESS_AUTH_KEY) === '1') {
+    if (sessionStorage.getItem(ACCESS_AUTH_KEY) === '1') {
       setAuthed(true)
     }
   }, [])
