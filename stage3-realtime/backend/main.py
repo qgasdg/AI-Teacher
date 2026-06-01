@@ -13,7 +13,8 @@ from routers import sessions, realtime, recordings
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    await init_db()
+    import asyncio
+    asyncio.create_task(init_db())  # 백그라운드 실행 — 헬스체크 블로킹 방지
     yield
 
 
