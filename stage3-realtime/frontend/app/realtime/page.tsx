@@ -219,10 +219,7 @@ function RealtimeSession({ student }: { student: StudentIdentity }) {
   const handleEnd = useCallback(async () => {
     resetNudgeTimer();
 
-    // 녹음 데이터 먼저 가져오기 (disconnect 전에)
-    let audioBlob: Blob | null = null;
     if (webrtcRef.current) {
-      audioBlob = await webrtcRef.current.getRecordingBlob();
       webrtcRef.current.disconnect();
       webrtcRef.current = null;
     }
@@ -236,13 +233,10 @@ function RealtimeSession({ student }: { student: StudentIdentity }) {
       .join("\n");
 
     try {
-      // 세션 종료 + 트랜스크립트 + 오디오 전송 (multipart/form-data)
+      // 세션 종료 + 트랜스크립트 전송 (텍스트만, 오디오 저장 안 함)
       const formData = new FormData();
       formData.append("transcript", transcriptText);
       formData.append("duration_seconds", String(elapsedSeconds));
-      if (audioBlob) {
-        formData.append("audio", audioBlob, "session-audio.webm");
-      }
 
       await apiFetch(`/sessions/${sessionId}/end`, {
         method: "POST",
