@@ -42,12 +42,18 @@ async def init_db():
             async with engine.begin() as conn:
                 await conn.run_sync(Base.metadata.create_all)
 
-                # 간이 마이그레이션: recordings.feedback 컬럼이 없으면 추가
+                # 마이그레이션: feedback 컬럼 추가 (없으면)
                 try:
                     await conn.execute(text("ALTER TABLE recordings ADD COLUMN feedback TEXT"))
                 except Exception:
-                    # 이미 존재하거나 테이블이 없음 — 무시
                     pass
+
+                # 마이그레이션: audio_data 컬럼 제거 (오디오를 DB에 저장하지 않는 구조로 전환)
+                for table in ("recordings", "realtime_sessions"):
+                    try:
+                        await conn.execute(text(f"ALTER TABLE {table} DROP COLUMN IF EXISTS audio_data"))
+                    except Exception:
+                        pass
             return  # 성공
         except Exception as e:
             last_err = e
