@@ -13,6 +13,8 @@ const API_SECRET = process.env.API_SECRET ?? "";
  * - access:  그 외 (세션 생성/조회, 녹음 업로드, 토큰 발급, end/abandon)
  */
 function requiredRole(method: string, seg: string[]): Role {
+  // 수업 일지는 선생님 전용 (녹음 업로드·조회·삭제 모두)
+  if (seg[0] === "lessons") return "teacher";
   const last = seg[seg.length - 1];
   const isList = seg.length === 1 && (seg[0] === "sessions" || seg[0] === "recordings");
   if (method === "DELETE") return "teacher";

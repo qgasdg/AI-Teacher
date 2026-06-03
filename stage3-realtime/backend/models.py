@@ -24,6 +24,23 @@ class Recording(Base):
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
 
+class Lesson(Base):
+    """과외 수업 전체 녹음 → 수업 일지 (선생님이 수업 중 녹음)"""
+    __tablename__ = "lessons"
+
+    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
+    student_name: Mapped[str] = mapped_column(String(100))
+    subject: Mapped[str] = mapped_column(String(200))
+    transcript: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    homework: Mapped[Optional[str]] = mapped_column(Text, nullable=True)   # 다음 숙제
+    progress: Mapped[Optional[str]] = mapped_column(Text, nullable=True)   # 수업 진도
+    lesson_content: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # 수업 내용
+    status: Mapped[str] = mapped_column(String(50), default="pending")
+    # pending → processing → completed → failed
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    duration_seconds: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
+
 class RealtimeSession(Base):
     __tablename__ = "realtime_sessions"
 
