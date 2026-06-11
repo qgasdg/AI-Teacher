@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 load_dotenv(override=True)
 
 from database import init_db
-from routers import sessions, realtime, recordings, lessons
+from routers import sessions, realtime, recordings, lessons, ontact
 
 
 @asynccontextmanager
@@ -26,7 +26,7 @@ app = FastAPI(
 )
 
 # 브라우저는 Next.js 프록시를 경유하므로 백엔드를 직접 호출하지 않음.
-# 직접 호출 가능한 origin을 FRONTEND_URL로 제한 (쉼표로 여러 개 가능).
+# WebSocket은 브라우저가 백엔드에 직접 연결하므로 FRONTEND_URL을 allow_origins에 포함.
 _origins = [o.strip() for o in os.getenv("FRONTEND_URL", "http://localhost:3001").split(",") if o.strip()]
 
 app.add_middleware(
@@ -41,6 +41,7 @@ app.include_router(sessions.router)
 app.include_router(realtime.router)
 app.include_router(recordings.router)
 app.include_router(lessons.router)
+app.include_router(ontact.router)
 
 
 @app.get("/health")

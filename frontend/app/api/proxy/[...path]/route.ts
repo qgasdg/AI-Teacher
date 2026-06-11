@@ -13,8 +13,16 @@ const API_SECRET = process.env.API_SECRET ?? "";
  * - access:  그 외 (세션 생성/조회, 녹음 업로드, 토큰 발급, end/abandon)
  */
 function requiredRole(method: string, seg: string[]): Role {
-  // 수업 일지는 선생님 전용 (녹음 업로드·조회·삭제 모두)
+  // 수업 일지는 선생님 전용
   if (seg[0] === "lessons") return "teacher";
+  // 온택트 교실: 교실 생성/종료, 세션 목록·보고서 수정은 teacher; ws-ticket·complete는 access
+  if (seg[0] === "ontact") {
+    if (method === "POST" && seg[1] === "classrooms" && seg.length === 2) return "teacher";
+    if (seg[2] === "close") return "teacher";
+    if (seg[2] === "sessions" && method === "GET") return "teacher";
+    if (method === "PATCH" && seg[1] === "student-sessions") return "teacher";
+    return "access";
+  }
   const last = seg[seg.length - 1];
   const isList = seg.length === 1 && (seg[0] === "sessions" || seg[0] === "recordings");
   if (method === "DELETE") return "teacher";
@@ -87,7 +95,11 @@ async function proxyInner(req: NextRequest, pathParts: string[], method: string)
       if (res.status !== 307 && res.status !== 308) break;
       const loc = res.headers.get("location");
       if (!loc) break;
-      target = new URL(loc, target).toString().replace(/^http:\/\//, "https://");
+      const redirected = new URL(loc, target).toString();
+      // localhost는 https 없음 — 외부 URL(Railway 등)만 강제 업그레이드
+      target = /localhost|127\.0\.0\.1/.test(redirected)
+        ? redirected
+        : redirected.replace(/^http:\/\//, "https://");
     }
     res = res!;
   } catch (e) {

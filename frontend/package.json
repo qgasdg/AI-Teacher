@@ -8,6 +8,9 @@
     "start": "next start"
   },
   "dependencies": {
+    "@livekit/components-react": "^2.9.21",
+    "@tldraw/tldraw": "^5.1.0",
+    "livekit-client": "^2.19.2",
     "next": "15.1.11",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",

@@ -1,169 +1,114 @@
 # AI Teacher
 
-온택트 교실에서 교사가 자리를 비운 동안 AI가 학생의 복습을 돕고, 대화 내용을 요약해 교사에게 전달하는 서비스입니다.
+온택트 줌 과외 수업을 보조하는 AI 서비스.
+수업 중 학생-선생님 채팅, 자동 녹음, 수업 후 보고서 자동 생성까지 지원합니다.
 
-```
-교사 퇴장 → AI 선생님 등장 → 학생과 대화(복습) → 대화 요약 → 교사에게 전달
-```
+## 기능
 
-## 단계별 구현 현황
-
-| 단계 | 설명 | 상태 |
-|------|------|------|
-| Stage 1 | 녹음 → STT → AI 요약 → 교사 대시보드 | 완료 |
-| Stage 3 | OpenAI Realtime API 기반 실시간 양방향 대화 (PTT + 독려 타이머) | 구현 중 |
-
----
+| 기능 | 설명 |
+|------|------|
+| 온택트 교실 | 줌 수업 중 1:1 채팅, 문제 사진 전송, 수업 자동 녹음 |
+| 수업 보고서 | STT(Whisper) → Kimi K2로 수업 진도·근황·내용 자동 생성 |
+| 복습 녹음 | 학생이 배운 내용을 혼자 말로 정리 → AI 피드백 |
+| 실시간 AI 대화 | OpenAI Realtime API 기반 음성 복습 |
+| 수업 일지 | 선생님 수업 녹음 → STT → 숙제·진도·내용 자동 정리 |
 
 ## 폴더 구조
 
 ```
 AI-Teacher/
-├── backend/                    # Stage 1 백엔드 (FastAPI)
+├── backend/                     # FastAPI (Railway 배포)
 │   ├── main.py
-│   ├── database.py
-│   ├── models.py
+│   ├── database.py              # SQLAlchemy + Supabase PostgreSQL
+│   ├── models.py                # ai_tutor 스키마 테이블
 │   ├── requirements.txt
-│   ├── .env.example
 │   ├── routers/
-│   │   └── sessions.py         # 업로드/조회 API
+│   │   ├── ontact.py            # 온택트 교실 WebSocket + REST
+│   │   ├── sessions.py          # 실시간 AI 대화 세션
+│   │   ├── recordings.py        # 복습 녹음
+│   │   ├── lessons.py           # 수업 일지
+│   │   └── realtime.py          # OpenAI Realtime 토큰
 │   └── services/
-│       ├── stt.py              # OpenAI Whisper STT
-│       └── summarizer.py       # Claude 요약
+│       ├── ontact_reporter.py   # Kimi K2 보고서 생성
+│       ├── lesson_reporter.py   # GPT-4o 수업 일지
+│       ├── summarizer.py        # 복습 요약
+│       ├── audio.py             # webm → wav 변환
+│       └── supabase_client.py   # 학생 정보 조회
 │
-├── frontend/                   # Stage 1 프론트엔드 (Next.js)
-│   ├── app/
-│   │   ├── page.tsx            # 학생 녹음 화면
-│   │   └── teacher/page.tsx    # 교사 대시보드
-│   ├── components/
-│   │   └── AudioRecorder.tsx
-│   ├── .env.local.example
-│   └── package.json
-│
-├── stage3-realtime/            # Stage 3 실시간 양방향 대화
-│   ├── backend/                # FastAPI + OpenAI Realtime API
-│   │   ├── main.py
-│   │   ├── routers/
-│   │   │   ├── sessions.py
-│   │   │   └── realtime.py     # WebSocket 실시간 연동
-│   │   └── services/
-│   │       ├── openai_realtime.py  # turn_detection: None (서버 VAD 비활성화)
-│   │       └── summarizer.py
-│   └── frontend/               # Next.js 실시간 대화 UI
-│       ├── app/
-│       │   └── page.tsx            # PTT 상태 관리 + 30초 독려 타이머
-│       ├── components/
-│       │   └── VoiceSession.tsx    # PTT 버튼 UI (녹음/대기/AI발화 상태)
-│       └── lib/
-│           └── webrtc.ts           # 마이크 제어 + 오디오 커밋 + 독려 메시지
-│
-├── SYSTEM_DESIGN.md            # 전체 시스템 설계 및 비용 분석
-└── PROGRESS.md                 # 개발 진행 기록
+└── frontend/                    # Next.js (Vercel 배포)
+    └── app/
+        ├── ontact/page.tsx      # 학생 온택트 교실
+        ├── realtime/page.tsx    # 실시간 AI 대화
+        ├── record/page.tsx      # 복습 녹음
+        ├── lesson/page.tsx      # 수업 일지 녹음
+        └── teacher/page.tsx     # 선생님 대시보드
 ```
 
----
-
-## 실행 방법
-
-### Stage 1 (녹음 → 요약)
+## 실행
 
 **백엔드**
-
 ```bash
 cd backend
-
-python -m venv venv
-source venv/bin/activate        # Windows: venv\Scripts\activate
-
+python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt
-
-cp .env.example .env
-# .env에 API 키 입력 후
-
-python main.py
-# → http://localhost:8000
+cp .env.example .env   # API 키 입력
+uvicorn main:app --reload --port 8001
 ```
 
 **프론트엔드**
-
 ```bash
 cd frontend
-
 npm install
-
 cp .env.local.example .env.local
-
 npm run dev
-# → http://localhost:3000
 ```
-
-| 역할 | URL |
-|------|-----|
-| 학생 녹음 | http://localhost:3000 |
-| 교사 대시보드 | http://localhost:3000/teacher |
-
----
-
-### Stage 3 (실시간 양방향 대화)
-
-```bash
-cd stage3-realtime/backend
-# Stage 1 백엔드와 동일한 방식으로 venv 생성 및 실행
-
-cd stage3-realtime/frontend
-npm install && npm run dev
-```
-
----
-
-## Stage 3 대화 흐름 (PTT 방식)
-
-서버 VAD를 비활성화하고, 학생이 직접 **Push-to-Talk(PTT) 버튼**으로 발화를 제어합니다.
-
-```
-AI 인사 → AI 말 끝남 → [학생 대기]
-                         ├─ 학생이 "말하기" 누름 → 녹음 중 → "말하기 완료" 누름 → AI 응답
-                         └─ 30초 경과 → AI: "자, 이제 좀 생각해본 것 같은데 한번 얘기해볼까?"
-```
-
-### 주요 기능
-
-| 기능 | 설명 |
-|------|------|
-| PTT 버튼 | "말하기" ↔ "말하기 완료" 토글, AI 발화 중 비활성화 (회색) |
-| 녹음 표시 | 녹음 중 주황색 + pulse 애니메이션 |
-| 독려 타이머 | AI 발화 종료 후 30초간 학생 무응답 시 자동 독려 메시지 |
-| 서버 VAD 비활성화 | `turn_detection: None` — AI가 임의로 끼어들지 않음 |
-| 마이크 제어 | 기본 음소거, `setMicEnabled()` / `commitAudioAndRespond()` |
-| AI 발화 감지 | `onAiSpeakingChange` 콜백으로 AI 말하기 시작/종료 감지 |
-
----
 
 ## 환경 변수
 
 ### `backend/.env`
-
 ```
-OPENAI_API_KEY=sk-...           # Whisper STT
-ANTHROPIC_API_KEY=sk-ant-...    # Claude 요약
-FRONTEND_URL=http://localhost:3000
-UPLOAD_DIR=./uploads
+DATABASE_URL=postgresql://postgres:[pw]@db.[project].supabase.co:5432/postgres
+OPENAI_API_KEY=sk-...
+OPENROUTER_API_KEY=sk-or-...       # Kimi K2 보고서 생성
+BACKEND_WS_URL=wss://your-app.railway.app
+FRONTEND_URL=https://your-app.vercel.app
+API_SHARED_SECRET=...
+SUPABASE_STUDENT_URL=https://[project].supabase.co
+SUPABASE_STUDENT_KEY=...
 ```
 
 ### `frontend/.env.local`
-
 ```
-NEXT_PUBLIC_API_URL=http://localhost:8000
+API_URL=https://your-app.railway.app
+API_SECRET=...
+ACCESS_PASSWORD=...
+TEACHER_PASSWORD=...
+SESSION_SECRET=...
 ```
-
----
 
 ## 기술 스택
 
 | 구성 요소 | 기술 |
 |-----------|------|
-| 백엔드 | FastAPI + SQLite (aiosqlite) |
-| STT | OpenAI Whisper API |
-| 요약 | Anthropic Claude (claude-sonnet-4-6) |
-| 실시간 대화 | OpenAI Realtime API + WebSocket |
+| 백엔드 | FastAPI + PostgreSQL (Supabase, ai_tutor 스키마) |
+| STT | OpenAI Whisper (gpt-4o-transcribe) |
+| 보고서 | Kimi K2 via OpenRouter (온택트), GPT-4o (수업 일지) |
+| 실시간 대화 | OpenAI Realtime API |
+| 채팅 | FastAPI WebSocket |
 | 프론트엔드 | Next.js 15 + TypeScript + Tailwind CSS |
+| 배포 | Vercel (프론트) + Railway (백엔드) |
+
+## 온택트 교실 흐름
+
+```
+선생님: 대시보드 → 온택트 교실 열기 → 교실 번호 발급
+학생:   /ontact → 교실 번호 + 이름 입력 → 입장
+            ↓ 자동 녹음 시작 (마이크 + 시스템 오디오*)
+       수업 중 채팅 · 문제 사진 전송
+            ↓ 나가기 버튼
+       오디오 업로드 → STT → Kimi K2 보고서 생성
+선생님: 보고서 검토 · 수정 → 최종 저장
+```
+
+> *Windows + Chrome에서 화면 공유 허용 시 선생님 목소리(줌 오디오)도 함께 녹음됩니다.
+> macOS·iOS·Android는 마이크 단독 녹음.
