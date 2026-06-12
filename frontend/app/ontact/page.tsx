@@ -86,9 +86,12 @@ export default function OntactPage() {
     setPhase("joining");
 
     try {
-      const classroomRes = await apiFetch("/ontact/classrooms/current");
+      // 열린 교실이 없으면 자동 생성 (학생 선입장 허용)
+      const classroomRes = await apiFetch("/ontact/classrooms/ensure-open", {
+        method: "POST",
+      });
       if (!classroomRes.ok) {
-        setFormError("현재 열린 교실이 없습니다. 선생님께 문의하세요.");
+        setFormError("입장 중 오류가 발생했습니다. 잠시 후 다시 시도해주세요.");
         setPhase("form");
         return;
       }
@@ -96,7 +99,7 @@ export default function OntactPage() {
       setClassroomId(cid);
 
       const tokenRes = await apiFetch(
-        `/ontact/token?classroom_id=${cid}&name=${encodeURIComponent(name)}&room_type=group`
+        `/ontact/token?classroom_id=${cid}&name=${encodeURIComponent(name)}&room_type=group&want=student`
       );
       if (!tokenRes.ok) {
         const err = await tokenRes.json().catch(() => ({}));
@@ -122,6 +125,7 @@ export default function OntactPage() {
       classroom_id: String(classroomId),
       name: studentName,
       room_type: newRoomType,
+      want: "student",
     });
     const tokenRes = await apiFetch(`/ontact/token?${params}`);
     if (!tokenRes.ok) return;
@@ -330,15 +334,32 @@ function StudentRoom({
     await onLeave();
   };
 
+  // 선생님이 교실을 닫으면 서버가 LiveKit 방을 삭제 → 연결이 끊긴다.
+  // 이때 자동으로 수업 종료 처리 (녹음 업로드 → 완료 화면).
+  // 방 전환 시에는 언마운트 cleanup이 먼저 리스너를 제거하므로 발동하지 않는다.
+  useEffect(() => {
+    const onDisconnected = () => {
+      if (!leaving) {
+        setLeaving(true);
+        onLeave();
+      }
+    };
+    room.on(RoomEvent.Disconnected, onDisconnected);
+    return () => { room.off(RoomEvent.Disconnected, onDisconnected); };
+  }, [room, leaving, onLeave]);
+
   const allCameraTracks = useTracks([Track.Source.Camera]);
   const allMicTracks = useTracks([Track.Source.Microphone]);
   const allScreenShareTracks = useTracks([Track.Source.ScreenShare]);
 
+  // 카메라를 끄면 publication이 muted로 남아 검은 잔상이 생긴다 → 실제 송출 중인 트랙만.
+  const isLive = (t: (typeof allCameraTracks)[number]) =>
+    !!t.publication && !t.publication.isMuted && !!t.publication.track;
   const teacherVideoTracks = allCameraTracks.filter(
-    (t) => t.participant.identity === "teacher"
+    (t) => t.participant.identity === "teacher" && isLive(t)
   );
   const localVideoTracks = allCameraTracks.filter(
-    (t) => t.participant.identity === room.localParticipant.identity
+    (t) => t.participant.identity === room.localParticipant.identity && isLive(t)
   );
   const remoteAudioTracks = allMicTracks.filter(
     (t) => t.participant.identity !== room.localParticipant.identity
@@ -468,6 +489,27 @@ function StudentRoom({
 
       {/* 채팅 패널 */}
       <div className="w-72 bg-white border-l border-gray-200 flex flex-col">
+        {/* 참여자 목록 */}
+        <div className="px-4 py-3 border-b border-gray-100">
+          <p className="text-sm font-semibold text-gray-700 mb-2">
+            참여자 <span className="text-purple-600">{participants.length}명</span>
+          </p>
+          <ul className="space-y-1">
+            {participants.map((p) => {
+              const isTeacher = p.identity === "teacher";
+              const isMe = p.identity === room.localParticipant.identity;
+              return (
+                <li key={p.identity} className="flex items-center gap-2 text-xs text-gray-600">
+                  <span className={`w-1.5 h-1.5 rounded-full ${isTeacher ? "bg-purple-500" : "bg-green-500"}`} />
+                  <span className={isTeacher ? "font-medium text-gray-800" : ""}>
+                    {isTeacher ? "선생님" : p.name || p.identity}
+                    {isMe && <span className="text-gray-400"> (나)</span>}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
         <div className="px-4 py-3 border-b border-gray-100 text-sm font-semibold text-gray-700">채팅</div>
         <div className="flex-1 overflow-y-auto px-3 py-3 space-y-2">
           {msgs.length === 0 && (

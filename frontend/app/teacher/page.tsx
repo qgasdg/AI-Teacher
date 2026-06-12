@@ -638,6 +638,28 @@ function OntactTeacherView() {
   const [privateStudent, setPrivateStudent] = useState<string | null>(null);
   const [roomKey, setRoomKey] = useState(0);
   const [roomConnecting, setRoomConnecting] = useState(false);
+  // 개인실 중인 학생 목록 — 방 전환 시 LiveKitRoom 리마운트에도 유지되도록 부모에서 관리
+  const [privateStudentNames, setPrivateStudentNames] = useState<string[]>([]);
+  // 낙관적 추가 보호: 이동 직후 학생이 실제 접속하기 전(1~2초)에
+  // 폴링이 "서버에 없음"으로 덮어써 목록에서 사라지는 것을 방지
+  const pendingPrivateRef = useRef<Map<string, number>>(new Map());
+
+  const addPrivateStudent = useCallback((name: string) => {
+    pendingPrivateRef.current.set(name, Date.now());
+    setPrivateStudentNames((prev) => [...new Set([...prev, name])]);
+  }, []);
+
+  const removePrivateStudent = useCallback((name: string) => {
+    pendingPrivateRef.current.delete(name);
+    setPrivateStudentNames((prev) => prev.filter((n) => n !== name));
+  }, []);
+
+  // 이동 직후 보호 창(10초) 안에 있는지 — 아직 강의실을 떠나지 못한 학생을
+  // 정리 로직이 잘못 제거하지 않도록 판별
+  const isPendingPrivate = useCallback((name: string) => {
+    const t = pendingPrivateRef.current.get(name);
+    return t !== undefined && Date.now() - t <= 10_000;
+  }, []);
 
   const fetchSessions = useCallback(async (classroomId: number) => {
     try {
@@ -645,6 +667,32 @@ function OntactTeacherView() {
       if (res.ok) setSessions(await res.json());
     } catch {}
   }, []);
+
+  // 개인실 학생 목록 — LiveKit 서버가 진실 공급원 (3초 폴링).
+  // DataChannel 알림 유실·리마운트·새로고침과 무관하게 항상 정확하다.
+  useEffect(() => {
+    if (!classroom) return;
+    const tick = async () => {
+      try {
+        const res = await apiFetch(`/ontact/classrooms/${classroom.id}/private-rooms`);
+        if (res.ok) {
+          const data = await res.json();
+          const server: string[] = data.students ?? [];
+          // 서버 목록 + 10초 이내 낙관적 추가분 병합
+          const pending = pendingPrivateRef.current;
+          const now = Date.now();
+          for (const n of server) pending.delete(n); // 서버가 확인했으면 보호 해제
+          for (const [n, t] of pending) {
+            if (now - t > 10_000) pending.delete(n); // 10초 내 미접속 → 만료
+          }
+          setPrivateStudentNames([...new Set([...server, ...pending.keys()])]);
+        }
+      } catch {}
+    };
+    tick();
+    const iv = setInterval(tick, 3000);
+    return () => clearInterval(iv);
+  }, [classroom]);
 
   const getToken = useCallback(async (
     classroomId: number,
@@ -665,21 +713,14 @@ function OntactTeacherView() {
   const createClassroom = async () => {
     setCreating(true);
     try {
-      // 이미 열린 교실이 있으면 재사용 (학생이 먼저 입장한 경우 등)
-      let data: { id: number; status: string } | null = null;
-      const currentRes = await apiFetch("/ontact/classrooms/current");
-      if (currentRes.ok) {
-        data = await currentRes.json();
-      } else {
-        const res = await apiFetch("/ontact/classrooms", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ title: null }),
-        });
-        if (!res.ok) { setCreating(false); return; }
-        data = await res.json();
-      }
-      if (!data) { setCreating(false); return; }
+      // 백엔드가 "열린 교실 1개" 보장 (재사용 + 옛 교실 정리) 처리
+      const res = await apiFetch("/ontact/classrooms", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: null }),
+      });
+      if (!res.ok) { setCreating(false); return; }
+      const data = await res.json();
 
       const tokenData = await getToken(data.id, "group");
       if (!tokenData) { setCreating(false); return; }
@@ -752,6 +793,10 @@ function OntactTeacherView() {
         sessions={sessions}
         roomType={roomType}
         privateStudent={privateStudent}
+        privateStudentNames={privateStudentNames}
+        addPrivateStudent={addPrivateStudent}
+        removePrivateStudent={removePrivateStudent}
+        isPendingPrivate={isPendingPrivate}
         onSwitchRoom={switchRoom}
         onClose={closeClassroom}
         onRefreshSessions={() => fetchSessions(classroom.id)}
@@ -768,6 +813,10 @@ function TeacherRoom({
   sessions,
   roomType,
   privateStudent,
+  privateStudentNames,
+  addPrivateStudent,
+  removePrivateStudent,
+  isPendingPrivate,
   onSwitchRoom,
   onClose,
   onRefreshSessions,
@@ -777,6 +826,10 @@ function TeacherRoom({
   sessions: OntactSession[];
   roomType: RoomType;
   privateStudent: string | null;
+  privateStudentNames: string[];
+  addPrivateStudent: (name: string) => void;
+  removePrivateStudent: (name: string) => void;
+  isPendingPrivate: (name: string) => boolean;
   onSwitchRoom: (type: RoomType, student?: string | null) => void;
   onClose: () => void;
   onRefreshSessions: () => void;
@@ -793,7 +846,6 @@ function TeacherRoom({
   const [expandedSessionId, setExpandedSessionId] = useState<number | null>(null);
   const [editReport, setEditReport] = useState<Record<string, string> | null>(null);
   const [savingReport, setSavingReport] = useState(false);
-  const [privateStudentNames, setPrivateStudentNames] = useState<string[]>([]);
   const bottomRef = useRef<HTMLDivElement>(null);
   const imgRef = useRef<HTMLInputElement>(null);
   const tldrawEditorRef = useRef<Editor | null>(null);
@@ -810,17 +862,28 @@ function TeacherRoom({
     };
   }, [room, onRefreshSessions]);
 
+  // 강의실에 실제로 보이는 학생은 개인실 목록에서 제거 (중복 표시 방지).
+  // 단, 방금 '이동'을 눌러 아직 강의실을 떠나지 못한 학생(pending)은 제외 —
+  // 그렇지 않으면 낙관적 추가가 즉시 취소돼 개인실 목록에 뜨지 않는다.
+  useEffect(() => {
+    if (roomType !== "group") return;
+    const presentNames = new Set(students.map((p) => p.name || p.identity));
+    for (const n of privateStudentNames) {
+      if (presentNames.has(n) && !isPendingPrivate(n)) removePrivateStudent(n);
+    }
+  }, [students, roomType, privateStudentNames, removePrivateStudent, isPendingPrivate]);
+
   // DataChannel 수신
   useEffect(() => {
     const handler = (payload: Uint8Array) => {
       try {
         const msg: DataMsg = JSON.parse(new TextDecoder().decode(payload));
         if (msg.type === "entered_private") {
-          setPrivateStudentNames((prev) => [...new Set([...prev, msg.sender])]);
+          addPrivateStudent(msg.sender);
           return;
         }
         if (msg.type === "left_private") {
-          setPrivateStudentNames((prev) => prev.filter((n) => n !== msg.sender));
+          removePrivateStudent(msg.sender);
           return;
         }
         if (msg.type !== "chat") return;
@@ -837,7 +900,7 @@ function TeacherRoom({
     };
     room.on(RoomEvent.DataReceived, handler);
     return () => { room.off(RoomEvent.DataReceived, handler); };
-  }, [room]);
+  }, [room, addPrivateStudent, removePrivateStudent]);
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [chatMap, selectedStudent]);
 
@@ -906,11 +969,14 @@ function TeacherRoom({
     (t) => t.participant.identity !== "teacher"
   );
   const allScreenShareTracks = useTracks([Track.Source.ScreenShare]);
+  // 카메라를 끄면 publication이 muted로 남아 검은 타일 잔상이 생긴다 → 실제 송출 중인 트랙만.
+  const isLive = (t: (typeof allCameraTracks)[number]) =>
+    !!t.publication && !t.publication.isMuted && !!t.publication.track;
   const studentVideoTracks = allCameraTracks.filter(
-    (t) => t.participant.identity !== "teacher"
+    (t) => t.participant.identity !== "teacher" && isLive(t)
   );
   const teacherLocalVideoTracks = allCameraTracks.filter(
-    (t) => t.participant.identity === "teacher"
+    (t) => t.participant.identity === "teacher" && isLive(t)
   );
   const activeScreenShare = allScreenShareTracks[0] ?? null;
 
@@ -934,27 +1000,14 @@ function TeacherRoom({
           }`}>
             {roomType === "group" ? "강의실" : `개인실 · ${privateStudent}`}
           </span>
-          {roomType === "private" && (<>
+          {roomType === "private" && (
             <button
               onClick={() => onSwitchRoom("group")}
               className="text-xs px-3 py-1.5 rounded-lg bg-gray-100 text-gray-700 hover:bg-gray-200 font-medium transition"
             >
               ← 강의실로
             </button>
-            <button
-              onClick={async () => {
-                // 학생도 함께 강의실로 데려가기
-                const msg = { type: "room_switch", sender: "선생님", to: null, content: "", target_room: "group" };
-                room.localParticipant.publishData(new TextEncoder().encode(JSON.stringify(msg)), { reliable: true });
-                setPrivateStudentNames((prev) => prev.filter((n) => n !== privateStudent));
-                await new Promise((r) => setTimeout(r, 250));
-                onSwitchRoom("group");
-              }}
-              className="text-xs px-3 py-1.5 rounded-lg bg-amber-100 text-amber-700 hover:bg-amber-200 font-medium transition"
-            >
-              학생과 함께 강의실로
-            </button>
-          </>)}
+          )}
           <button
             onClick={() => localParticipant.setCameraEnabled(!isCameraEnabled)}
             className={`flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium transition ${
@@ -1107,7 +1160,7 @@ function TeacherRoom({
                           { reliable: true, destinationIdentities: target ? [target.identity] : undefined }
                         );
                         // 학생이 entered_private 알림 없이 이동하므로 직접 개인실 목록에 추가
-                        setPrivateStudentNames((prev) => [...new Set([...prev, p.name ?? p.identity])]);
+                        addPrivateStudent(p.name ?? p.identity);
                       }}
                       title="학생을 개인실로 이동"
                       className="shrink-0 text-xs px-2 py-1 rounded-lg bg-gray-100 text-gray-500 hover:bg-amber-100 hover:text-amber-700 transition font-medium"
