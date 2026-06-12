@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import Optional
 
 from fastapi import (
-    APIRouter, BackgroundTasks, Depends, File, HTTPException,
+    APIRouter, BackgroundTasks, Depends, File, Header, HTTPException,
     Query, UploadFile,
 )
 from openai import AsyncOpenAI
@@ -75,7 +75,7 @@ async def create_classroom(body: ClassroomCreate, db: AsyncSession = Depends(get
     return _classroom_to_resp(classroom)
 
 
-@router.get("/classrooms/current", response_model=ClassroomResponse)
+@router.get("/classrooms/current", response_model=ClassroomResponse, dependencies=PROTECTED)
 async def get_current_classroom(db: AsyncSession = Depends(get_db)):
     result = await db.execute(
         select(OntactClassroom)
@@ -89,7 +89,7 @@ async def get_current_classroom(db: AsyncSession = Depends(get_db)):
     return _classroom_to_resp(classroom)
 
 
-@router.get("/classrooms/{classroom_id}", response_model=ClassroomResponse)
+@router.get("/classrooms/{classroom_id}", response_model=ClassroomResponse, dependencies=PROTECTED)
 async def get_classroom(classroom_id: int, db: AsyncSession = Depends(get_db)):
     classroom = await _get_classroom_or_404(classroom_id, db)
     return _classroom_to_resp(classroom)
@@ -137,7 +137,7 @@ async def save_final_report(
     return {"ok": True}
 
 
-@router.post("/classrooms/{classroom_id}/chat")
+@router.post("/classrooms/{classroom_id}/chat", dependencies=PROTECTED)
 async def save_chat_message(
     classroom_id: int,
     body: ChatMessageCreate,
@@ -156,34 +156,39 @@ async def save_chat_message(
     return {"ok": True}
 
 
-@router.get("/token")
+@router.get("/token", dependencies=PROTECTED)
 async def get_livekit_token(
     classroom_id: int = Query(...),
-    role: str = Query(...),
     name: str = Query(...),
     room_type: str = Query("group"),   # "group" | "private"
     target: Optional[str] = Query(None),  # 선생님이 개인실 진입 시 학생 이름
+    x_verified_role: Optional[str] = Header(None),  # 프록시가 주입한 검증된 역할
     db: AsyncSession = Depends(get_db),
 ):
     """LiveKit 입장 토큰 발급.
     - room_type=group  → 강의실 (ontact-{id})
     - room_type=private → 개인실 (ontact-{id}-{student})
     학생 첫 입장(group)에만 student_session 행 생성.
+
+    권한(선생님 여부)은 클라이언트 입력이 아니라 프록시가 검증해 주입한
+    X-Verified-Role 헤더로만 결정한다(권한 상승 방지).
     """
     if not LIVEKIT_URL:
         raise HTTPException(status_code=503, detail="LiveKit가 설정되지 않았습니다.")
+
+    is_teacher = (x_verified_role == "teacher")
 
     classroom = await _get_classroom_or_404(classroom_id, db)
     if classroom.status != "open":
         raise HTTPException(status_code=400, detail="이미 닫힌 교실입니다.")
 
-    # 개인실 대상 학생 결정
+    # 개인실 대상 학생 결정 — 선생님만 target(타 학생)을 지정할 수 있다.
     private_student: Optional[str] = None
     if room_type == "private":
-        private_student = target if role == "teacher" else name
+        private_student = target if is_teacher else name
 
     session_id: Optional[int] = None
-    if role == "student" and room_type == "group":
+    if not is_teacher and room_type == "group":
         student_session = OntactStudentSession(
             classroom_id=classroom_id,
             student_name=name,
@@ -194,7 +199,6 @@ async def get_livekit_token(
         await db.refresh(student_session)
         session_id = student_session.id
 
-    is_teacher = (role == "teacher")
     token = make_token(
         classroom_id=classroom_id,
         identity="teacher" if is_teacher else name,
@@ -209,7 +213,7 @@ async def get_livekit_token(
     return resp
 
 
-@router.post("/student-sessions/{session_id}/complete")
+@router.post("/student-sessions/{session_id}/complete", dependencies=PROTECTED)
 async def complete_session(
     session_id: int,
     background_tasks: BackgroundTasks,

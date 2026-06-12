@@ -653,7 +653,6 @@ function OntactTeacherView() {
   ) => {
     const params = new URLSearchParams({
       classroom_id: String(classroomId),
-      role: "teacher",
       name: "선생님",
       room_type: type,
       ...(student ? { target: student } : {}),

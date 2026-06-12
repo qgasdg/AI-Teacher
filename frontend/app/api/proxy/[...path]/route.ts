@@ -58,6 +58,13 @@ async function proxyInner(req: NextRequest, pathParts: string[], method: string)
     return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
   }
 
+  // 프록시가 검증한 실제 역할. 백엔드는 클라이언트가 보낸 role 쿼리 대신
+  // 이 헤더로 권한을 결정한다(권한 상승 방지). teacher는 access의 상위.
+  const verifiedRole: Role =
+    verifyToken("teacher", req.cookies.get(COOKIE_NAME.teacher)?.value)
+      ? "teacher"
+      : "access";
+
   // 원본 pathname에서 /api/proxy 접두사만 제거 — trailing slash를 보존한다.
   // (seg.join("/")는 슬래시를 잃어 FastAPI가 307 리다이렉트를 내고,
   //  그 Location이 http:// 다운그레이드라 undici가 Authorization 헤더를 떨궈 401이 됨)
@@ -67,6 +74,8 @@ async function proxyInner(req: NextRequest, pathParts: string[], method: string)
 
   const headers: Record<string, string> = {};
   if (API_SECRET) headers["Authorization"] = `Bearer ${API_SECRET}`;
+  // 신뢰 경계: 이 헤더는 프록시만 설정한다(클라이언트 헤더는 전달되지 않음).
+  headers["X-Verified-Role"] = verifiedRole;
 
   let body: BodyInit | undefined;
   if (method !== "GET" && method !== "HEAD") {

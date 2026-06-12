@@ -96,7 +96,7 @@ export default function OntactPage() {
       setClassroomId(cid);
 
       const tokenRes = await apiFetch(
-        `/ontact/token?classroom_id=${cid}&role=student&name=${encodeURIComponent(name)}&room_type=group`
+        `/ontact/token?classroom_id=${cid}&name=${encodeURIComponent(name)}&room_type=group`
       );
       if (!tokenRes.ok) {
         const err = await tokenRes.json().catch(() => ({}));
@@ -120,7 +120,6 @@ export default function OntactPage() {
     if (!classroomId) return;
     const params = new URLSearchParams({
       classroom_id: String(classroomId),
-      role: "student",
       name: studentName,
       room_type: newRoomType,
     });
