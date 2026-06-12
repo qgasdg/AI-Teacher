@@ -1,6 +1,12 @@
 import os
 from contextlib import asynccontextmanager
 
+# macOS python.org 빌드는 CA 인증서가 비어 있어 aiohttp(LiveKit API)의 TLS 검증이
+# 실패한다 → certifi 번들을 SSL_CERT_FILE로 지정해 보정.
+import certifi
+os.environ.setdefault("SSL_CERT_FILE", certifi.where())
+os.environ.setdefault("SSL_CERT_DIR", os.path.dirname(certifi.where()))
+
 from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
