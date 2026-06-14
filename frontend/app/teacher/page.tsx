@@ -638,6 +638,7 @@ function OntactTeacherView() {
   const [privateStudent, setPrivateStudent] = useState<string | null>(null);
   const [roomKey, setRoomKey] = useState(0);
   const [roomConnecting, setRoomConnecting] = useState(false);
+  const [pastSessions, setPastSessions] = useState<OntactSession[]>([]);
   // 개인실 중인 학생 목록 — 방 전환 시 LiveKitRoom 리마운트에도 유지되도록 부모에서 관리
   const [privateStudentNames, setPrivateStudentNames] = useState<string[]>([]);
   // 낙관적 추가 보호: 이동 직후 학생이 실제 접속하기 전(1~2초)에
@@ -667,6 +668,18 @@ function OntactTeacherView() {
       if (res.ok) setSessions(await res.json());
     } catch {}
   }, []);
+
+  const fetchPastSessions = useCallback(async () => {
+    try {
+      const res = await apiFetch(`/ontact/sessions`);
+      if (res.ok) setPastSessions(await res.json());
+    } catch {}
+  }, []);
+
+  // 교실 입장 전에는 지난 수업 세션 목록을 보여준다 (입장하면 실시간 목록으로 전환).
+  useEffect(() => {
+    if (!classroom) fetchPastSessions();
+  }, [classroom, fetchPastSessions]);
 
   // 개인실 학생 목록 — LiveKit 서버가 진실 공급원 (3초 폴링).
   // DataChannel 알림 유실·리마운트·새로고침과 무관하게 항상 정확하다.
@@ -763,14 +776,25 @@ function OntactTeacherView() {
 
   if (!classroom) {
     return (
-      <div className="text-center py-16">
-        <button
-          onClick={createClassroom}
-          disabled={creating}
-          className="bg-purple-600 text-white px-6 py-3 rounded-xl font-semibold hover:bg-purple-700 transition disabled:opacity-50"
-        >
-          {creating ? "입장 중..." : "입장"}
-        </button>
+      <div>
+        <div className="text-center py-12">
+          <button
+            onClick={createClassroom}
+            disabled={creating}
+            className="bg-purple-600 text-white px-6 py-3 rounded-xl font-semibold hover:bg-purple-700 transition disabled:opacity-50"
+          >
+            {creating ? "입장 중..." : "입장"}
+          </button>
+        </div>
+        {pastSessions.length > 0 ? (
+          <SessionReportList
+            sessions={pastSessions}
+            title={`지난 수업 세션 (${pastSessions.length})`}
+            onSaved={fetchPastSessions}
+          />
+        ) : (
+          <p className="text-center text-sm text-gray-400 py-8">아직 지난 수업 기록이 없습니다</p>
+        )}
       </div>
     );
   }
@@ -843,9 +867,6 @@ function TeacherRoom({
   const [selectedStudent, setSelectedStudent] = useState<string | null>(null);
   const [chatMap, setChatMap] = useState<Record<string, OntactChatMsg[]>>({});
   const [input, setInput] = useState("");
-  const [expandedSessionId, setExpandedSessionId] = useState<number | null>(null);
-  const [editReport, setEditReport] = useState<Record<string, string> | null>(null);
-  const [savingReport, setSavingReport] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
   const imgRef = useRef<HTMLInputElement>(null);
   const tldrawEditorRef = useRef<Editor | null>(null);
@@ -948,21 +969,6 @@ function TeacherRoom({
     };
     reader.readAsDataURL(file);
   }, [selectedStudent, room, participants]);
-
-  const saveReport = async (sessionId: number) => {
-    if (!editReport) return;
-    setSavingReport(true);
-    try {
-      await apiFetch(`/ontact/student-sessions/${sessionId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ report_final: editReport }),
-      });
-      setEditReport(null);
-      onRefreshSessions();
-    } catch {}
-    setSavingReport(false);
-  };
 
   const allCameraTracks = useTracks([Track.Source.Camera]);
   const remoteAudioTracks = useTracks([Track.Source.Microphone]).filter(
@@ -1234,111 +1240,150 @@ function TeacherRoom({
 
       {/* 세션 보고서 목록 */}
       {sessions.length > 0 && (
-        <div>
-          <p className="text-sm font-semibold text-gray-700 mb-3">수업 세션 ({sessions.length}명)</p>
-          <div className="space-y-2">
-            {sessions.map((s) => {
-              const isExpanded = expandedSessionId === s.id;
-              const report = s.report_final ?? s.report;
-              const statusLabel: Record<string, string> = {
-                active: "수업 중", processing: "보고서 생성 중",
-                completed: "완료", failed: "실패",
-              };
-              return (
-                <div key={s.id} className="bg-white border border-gray-100 rounded-xl overflow-hidden">
-                  <button
-                    onClick={() => { setExpandedSessionId(isExpanded ? null : s.id); setEditReport(null); }}
-                    className="w-full flex items-center justify-between px-5 py-4 text-left hover:bg-gray-50 transition"
-                  >
-                    <div>
-                      <p className="font-medium text-gray-800">{s.student_name}</p>
-                      <p className="text-xs text-gray-400">{formatDate(s.joined_at)}</p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
-                        s.status === "completed" ? "bg-green-100 text-green-700" :
-                        s.status === "processing" ? "bg-yellow-100 text-yellow-700" :
-                        s.status === "failed" ? "bg-red-100 text-red-700" :
-                        "bg-gray-100 text-gray-600"
-                      }`}>
-                        {statusLabel[s.status] ?? s.status}
-                      </span>
-                      <svg className={`w-4 h-4 text-gray-400 transition-transform ${isExpanded ? "rotate-180" : ""}`}
-                        fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                      </svg>
-                    </div>
-                  </button>
+        <SessionReportList
+          sessions={sessions}
+          title={`수업 세션 (${sessions.length}명)`}
+          onSaved={onRefreshSessions}
+        />
+      )}
+    </div>
+  );
+}
 
-                  {isExpanded && (
-                    <div className="px-5 pb-5 border-t border-gray-100 pt-4 space-y-4">
-                      {s.status === "processing" && (
-                        <div className="flex items-center gap-2 text-yellow-600 text-sm">
-                          <div className="w-4 h-4 border-2 border-yellow-300 border-t-yellow-600 rounded-full animate-spin" />
-                          보고서 생성 중...
-                        </div>
-                      )}
-                      {report && (
-                        <div>
-                          <div className="flex items-center justify-between mb-3">
-                            <h4 className="text-sm font-semibold text-gray-700">
-                              수업 보고서 {s.report_final ? "(최종 저장됨)" : "(AI 초안)"}
-                            </h4>
-                            {!editReport && (
-                              <button onClick={() => setEditReport({ ...report })}
-                                className="text-xs text-purple-600 hover:text-purple-800">수정</button>
-                            )}
-                          </div>
-                          {editReport ? (
-                            <div className="space-y-3">
-                              {Object.entries(editReport).map(([key, val]) => (
-                                <div key={key}>
-                                  <label className="text-xs font-medium text-gray-600 mb-1 block">{key}</label>
-                                  <textarea
-                                    value={val}
-                                    onChange={(e) => setEditReport((prev) => ({ ...prev!, [key]: e.target.value }))}
-                                    className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-300"
-                                    rows={3}
-                                  />
-                                </div>
-                              ))}
-                              <div className="flex gap-2">
-                                <button onClick={() => saveReport(s.id)} disabled={savingReport}
-                                  className="bg-purple-600 text-white px-4 py-1.5 rounded-lg text-sm hover:bg-purple-700 transition disabled:opacity-50">
-                                  {savingReport ? "저장 중..." : "최종 저장"}
-                                </button>
-                                <button onClick={() => setEditReport(null)}
-                                  className="text-sm text-gray-500 px-3 py-1.5 rounded-lg hover:bg-gray-100">취소</button>
-                              </div>
+// ── 세션 보고서 목록 (수업 중 + 과거 목록 공용) ───────────────
+
+function SessionReportList({
+  sessions,
+  title,
+  onSaved,
+}: {
+  sessions: OntactSession[];
+  title: string;
+  onSaved: () => void;
+}) {
+  const [expandedSessionId, setExpandedSessionId] = useState<number | null>(null);
+  const [editReport, setEditReport] = useState<Record<string, string> | null>(null);
+  const [savingReport, setSavingReport] = useState(false);
+
+  const saveReport = async (sessionId: number) => {
+    if (!editReport) return;
+    setSavingReport(true);
+    try {
+      await apiFetch(`/ontact/student-sessions/${sessionId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ report_final: editReport }),
+      });
+      setEditReport(null);
+      onSaved();
+    } catch {}
+    setSavingReport(false);
+  };
+
+  return (
+    <div>
+      <p className="text-sm font-semibold text-gray-700 mb-3">{title}</p>
+      <div className="space-y-2">
+        {sessions.map((s) => {
+          const isExpanded = expandedSessionId === s.id;
+          const report = s.report_final ?? s.report;
+          const statusLabel: Record<string, string> = {
+            active: "수업 중", processing: "보고서 생성 중",
+            completed: "완료", failed: "실패",
+          };
+          return (
+            <div key={s.id} className="bg-white border border-gray-100 rounded-xl overflow-hidden">
+              <button
+                onClick={() => { setExpandedSessionId(isExpanded ? null : s.id); setEditReport(null); }}
+                className="w-full flex items-center justify-between px-5 py-4 text-left hover:bg-gray-50 transition"
+              >
+                <div>
+                  <p className="font-medium text-gray-800">{s.student_name}</p>
+                  <p className="text-xs text-gray-400">{formatDate(s.joined_at)}</p>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${
+                    s.status === "completed" ? "bg-green-100 text-green-700" :
+                    s.status === "processing" ? "bg-yellow-100 text-yellow-700" :
+                    s.status === "failed" ? "bg-red-100 text-red-700" :
+                    "bg-gray-100 text-gray-600"
+                  }`}>
+                    {statusLabel[s.status] ?? s.status}
+                  </span>
+                  <svg className={`w-4 h-4 text-gray-400 transition-transform ${isExpanded ? "rotate-180" : ""}`}
+                    fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </div>
+              </button>
+
+              {isExpanded && (
+                <div className="px-5 pb-5 border-t border-gray-100 pt-4 space-y-4">
+                  {s.status === "processing" && (
+                    <div className="flex items-center gap-2 text-yellow-600 text-sm">
+                      <div className="w-4 h-4 border-2 border-yellow-300 border-t-yellow-600 rounded-full animate-spin" />
+                      보고서 생성 중...
+                    </div>
+                  )}
+                  {report && (
+                    <div>
+                      <div className="flex items-center justify-between mb-3">
+                        <h4 className="text-sm font-semibold text-gray-700">
+                          수업 보고서 {s.report_final ? "(최종 저장됨)" : "(AI 초안)"}
+                        </h4>
+                        {!editReport && (
+                          <button onClick={() => setEditReport({ ...report })}
+                            className="text-xs text-purple-600 hover:text-purple-800">수정</button>
+                        )}
+                      </div>
+                      {editReport ? (
+                        <div className="space-y-3">
+                          {Object.entries(editReport).map(([key, val]) => (
+                            <div key={key}>
+                              <label className="text-xs font-medium text-gray-600 mb-1 block">{key}</label>
+                              <textarea
+                                value={val}
+                                onChange={(e) => setEditReport((prev) => ({ ...prev!, [key]: e.target.value }))}
+                                className="w-full border border-gray-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-purple-300"
+                                rows={3}
+                              />
                             </div>
-                          ) : (
-                            <div className="space-y-3">
-                              {Object.entries(report).map(([key, val]) => (
-                                <div key={key} className="bg-gray-50 rounded-lg p-3">
-                                  <p className="text-xs font-medium text-gray-500 mb-1">{key}</p>
-                                  <p className="text-sm text-gray-800 whitespace-pre-wrap">{val}</p>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      )}
-                      {s.transcript && (
-                        <div>
-                          <h4 className="text-sm font-medium text-gray-600 mb-2">수업 전사</h4>
-                          <div className="bg-gray-50 rounded-lg p-3 text-sm text-gray-700 whitespace-pre-wrap max-h-48 overflow-y-auto">
-                            {s.transcript}
+                          ))}
+                          <div className="flex gap-2">
+                            <button onClick={() => saveReport(s.id)} disabled={savingReport}
+                              className="bg-purple-600 text-white px-4 py-1.5 rounded-lg text-sm hover:bg-purple-700 transition disabled:opacity-50">
+                              {savingReport ? "저장 중..." : "최종 저장"}
+                            </button>
+                            <button onClick={() => setEditReport(null)}
+                              className="text-sm text-gray-500 px-3 py-1.5 rounded-lg hover:bg-gray-100">취소</button>
                           </div>
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          {Object.entries(report).map(([key, val]) => (
+                            <div key={key} className="bg-gray-50 rounded-lg p-3">
+                              <p className="text-xs font-medium text-gray-500 mb-1">{key}</p>
+                              <p className="text-sm text-gray-800 whitespace-pre-wrap">{val}</p>
+                            </div>
+                          ))}
                         </div>
                       )}
                     </div>
                   )}
+                  {s.transcript && (
+                    <div>
+                      <h4 className="text-sm font-medium text-gray-600 mb-2">수업 전사</h4>
+                      <div className="bg-gray-50 rounded-lg p-3 text-sm text-gray-700 whitespace-pre-wrap max-h-48 overflow-y-auto">
+                        {s.transcript}
+                      </div>
+                    </div>
+                  )}
                 </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
+              )}
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }

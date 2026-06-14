@@ -192,6 +192,28 @@ async def _abandon_stale_sessions(classroom_id: int, grace_seconds: int = 20):
 
 
 @router.get(
+    "/sessions",
+    response_model=list[StudentSessionResponse],
+    dependencies=PROTECTED,
+)
+async def list_recent_sessions(
+    limit: int = Query(50, le=200),
+    db: AsyncSession = Depends(get_db),
+):
+    """대시보드용 — 교실 구분 없이 지난 수업 세션 목록.
+
+    active(진행 중)·abandoned(중단됨) 제외 → 실제 수업이 끝난 세션만.
+    """
+    result = await db.execute(
+        select(OntactStudentSession)
+        .where(OntactStudentSession.status.notin_(["active", "abandoned"]))
+        .order_by(OntactStudentSession.joined_at.desc())
+        .limit(limit)
+    )
+    return [_session_to_resp(s) for s in result.scalars().all()]
+
+
+@router.get(
     "/classrooms/{classroom_id}/sessions",
     response_model=list[StudentSessionResponse],
     dependencies=PROTECTED,
