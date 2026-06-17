@@ -58,23 +58,43 @@ export default function OntactPage() {
   const chunksRef = useRef<Blob[]>([]);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  // Web Audio 믹서 — 본인 마이크 + 수신 오디오(선생님·다른 참여자)를 합쳐 녹음.
+  // 목적지(dest)는 부모가 보유하고, 원격 트랙 연결은 StudentRoom이 담당한다.
+  const audioCtxRef = useRef<AudioContext | null>(null);
+  const mixDestRef = useRef<MediaStreamAudioDestinationNode | null>(null);
 
   useEffect(() => {
     if (phase !== "room") return;
-    let recorder: MediaRecorder;
-    navigator.mediaDevices.getUserMedia({ audio: true }).then((stream) => {
-      streamRef.current = stream;
+    let recorder: MediaRecorder | undefined;
+    let cancelled = false;
+    navigator.mediaDevices.getUserMedia({ audio: true }).then((micStream) => {
+      if (cancelled) { micStream.getTracks().forEach((t) => t.stop()); return; }
+      streamRef.current = micStream;
+
+      const Ctx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      const ctx = new Ctx();
+      ctx.resume().catch(() => {});
+      audioCtxRef.current = ctx;
+      const dest = ctx.createMediaStreamDestination();
+      mixDestRef.current = dest;
+      // 본인 마이크를 믹스에 연결 (스피커가 아니라 녹음 목적지로만)
+      ctx.createMediaStreamSource(micStream).connect(dest);
+
       const mimeType = MediaRecorder.isTypeSupported("audio/webm;codecs=opus")
         ? "audio/webm;codecs=opus"
         : "audio/webm";
-      recorder = new MediaRecorder(stream, { mimeType });
+      recorder = new MediaRecorder(dest.stream, { mimeType });
       recorder.ondataavailable = (e) => { if (e.data.size > 0) chunksRef.current.push(e.data); };
       recorder.start(5000);
       recorderRef.current = recorder;
     }).catch((err) => console.warn("녹음 시작 실패:", err));
     return () => {
+      cancelled = true;
       recorder?.stop();
       streamRef.current?.getTracks().forEach((t) => t.stop());
+      audioCtxRef.current?.close().catch(() => {});
+      audioCtxRef.current = null;
+      mixDestRef.current = null;
     };
   }, [phase]);
 
@@ -236,6 +256,8 @@ export default function OntactPage() {
         roomType={roomType}
         onSwitchRoom={switchRoom}
         onLeave={handleLeave}
+        audioCtxRef={audioCtxRef}
+        mixDestRef={mixDestRef}
       />
     </LiveKitRoom>
   );
@@ -250,6 +272,8 @@ function StudentRoom({
   roomType,
   onSwitchRoom,
   onLeave,
+  audioCtxRef,
+  mixDestRef,
 }: {
   studentName: string;
   classroomId: number;
@@ -257,6 +281,8 @@ function StudentRoom({
   roomType: RoomType;
   onSwitchRoom: (type: RoomType) => void;
   onLeave: () => void;
+  audioCtxRef: React.RefObject<AudioContext | null>;
+  mixDestRef: React.RefObject<MediaStreamAudioDestinationNode | null>;
 }) {
   const room = useRoomContext();
   const { localParticipant, isMicrophoneEnabled, isCameraEnabled, isScreenShareEnabled } = useLocalParticipant();
@@ -366,6 +392,46 @@ function StudentRoom({
   );
   // 화면 공유 트랙 (로컬/원격 중 첫 번째)
   const activeScreenShare = allScreenShareTracks[0] ?? null;
+
+  // 수신 오디오(선생님·다른 참여자)를 부모의 녹음 믹서에 연결.
+  // 학생이 듣는 것(<AudioTrack> 재생)과 별개로, 녹음에만 합쳐진다.
+  const mixedSourcesRef = useRef<Map<string, MediaStreamAudioSourceNode>>(new Map());
+  useEffect(() => {
+    const ctx = audioCtxRef.current;
+    const dest = mixDestRef.current;
+    if (!ctx || !dest) return;
+    const connected = mixedSourcesRef.current;
+    const liveSids = new Set<string>();
+    for (const t of remoteAudioTracks) {
+      const mst = t.publication.track?.mediaStreamTrack;
+      const sid = t.publication.trackSid;
+      if (!mst) continue;
+      liveSids.add(sid);
+      if (!connected.has(sid)) {
+        try {
+          const src = ctx.createMediaStreamSource(new MediaStream([mst]));
+          src.connect(dest);
+          connected.set(sid, src);
+        } catch { /* 이미 소비 중이거나 ctx 종료 */ }
+      }
+    }
+    // 사라진 트랙 정리
+    for (const [sid, src] of connected) {
+      if (!liveSids.has(sid)) {
+        try { src.disconnect(); } catch {}
+        connected.delete(sid);
+      }
+    }
+  }, [remoteAudioTracks, audioCtxRef, mixDestRef]);
+
+  // 방 전환 등으로 StudentRoom 언마운트 시 연결 해제
+  useEffect(() => {
+    const connected = mixedSourcesRef.current;
+    return () => {
+      for (const [, src] of connected) { try { src.disconnect(); } catch {} }
+      connected.clear();
+    };
+  }, []);
 
   return (
     <div className="flex h-[calc(100vh-57px)]">
