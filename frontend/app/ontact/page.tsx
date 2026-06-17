@@ -1,6 +1,60 @@
 "use client";
 
 import React, { useEffect, useRef, useState, useCallback } from "react";
+
+const ACCESS_AUTH_KEY = "access_authed";
+
+function AccessGate({ onAuth }: { onAuth: () => void }) {
+  const [input, setInput] = useState("");
+  const [error, setError] = useState(false);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    try {
+      const res = await fetch("/api/access-auth", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ password: input }),
+      });
+      if (res.ok) {
+        sessionStorage.setItem(ACCESS_AUTH_KEY, "1");
+        onAuth();
+      } else {
+        setError(true);
+        setInput("");
+      }
+    } catch {
+      setError(true);
+      setInput("");
+    }
+  };
+
+  return (
+    <div className="min-h-screen flex items-center justify-center bg-gray-50">
+      <form
+        onSubmit={handleSubmit}
+        className="bg-white rounded-2xl shadow-sm border border-gray-100 p-8 w-full max-w-sm space-y-4"
+      >
+        <h1 className="text-lg font-bold text-gray-800 text-center">온택트 교실</h1>
+        <input
+          type="password"
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          placeholder="비밀번호를 입력하세요"
+          className="w-full border border-gray-200 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-purple-500"
+          autoFocus
+        />
+        {error && <p className="text-red-500 text-xs">비밀번호가 올바르지 않습니다.</p>}
+        <button
+          type="submit"
+          className="w-full py-2.5 bg-purple-600 text-white text-sm font-medium rounded-lg hover:bg-purple-700 transition"
+        >
+          확인
+        </button>
+      </form>
+    </div>
+  );
+}
 import { apiFetch } from "@/lib/api";
 import {
   LiveKitRoom,
@@ -43,6 +97,20 @@ type RoomType = "group" | "private";
 // ── 메인 페이지 ───────────────────────────────────────────────
 
 export default function OntactPage() {
+  const [authed, setAuthed] = useState(false);
+
+  useEffect(() => {
+    if (sessionStorage.getItem(ACCESS_AUTH_KEY) === "1") {
+      setAuthed(true);
+    }
+  }, []);
+
+  if (!authed) return <AccessGate onAuth={() => setAuthed(true)} />;
+
+  return <OntactInner />;
+}
+
+function OntactInner() {
   const [phase, setPhase] = useState<"form" | "joining" | "room" | "done">("form");
   const [studentName, setStudentName] = useState("");
   const [formError, setFormError] = useState("");
