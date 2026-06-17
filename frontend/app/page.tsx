@@ -9,6 +9,25 @@ export default function HomePage() {
       </div>
 
       <div className="grid gap-5">
+        {/* 온택트 교실 */}
+        <Link href="/ontact" className="group block bg-white border border-gray-200 rounded-2xl p-6 hover:border-purple-300 hover:shadow-sm transition">
+          <div className="flex items-start gap-4">
+            <div className="w-12 h-12 bg-purple-50 rounded-xl flex items-center justify-center shrink-0 group-hover:bg-purple-100 transition">
+              <svg className="w-6 h-6 text-purple-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 10l4.553-2.069A1 1 0 0121 8.82v6.36a1 1 0 01-1.447.894L15 14M5 18h8a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z" />
+              </svg>
+            </div>
+            <div>
+              <h2 className="text-lg font-semibold text-gray-800 mb-1">온택트 교실</h2>
+              <p className="text-sm text-gray-500 leading-relaxed">
+                줌 수업 중 선생님과 1:1 채팅. 모르는 문제는 사진으로 바로 전송.
+                수업 종료 후 AI가 보고서를 자동 생성합니다.
+              </p>
+              <span className="inline-block mt-3 text-xs font-medium text-purple-600 bg-purple-50 px-2.5 py-1 rounded-full">채팅 · 녹음 · 보고서</span>
+            </div>
+          </div>
+        </Link>
+
         {/* 실시간 대화 */}
         <Link href="/realtime" className="group block bg-white border border-gray-200 rounded-2xl p-6 hover:border-blue-300 hover:shadow-sm transition">
           <div className="flex items-start gap-4">

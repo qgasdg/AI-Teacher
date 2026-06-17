@@ -13,6 +13,16 @@ const API_SECRET = process.env.API_SECRET ?? "";
  * - access:  그 외 (세션 생성/조회, 녹음 업로드, 토큰 발급, end/abandon)
  */
 function requiredRole(method: string, seg: string[]): Role {
+  // 수업 일지는 선생님 전용
+  if (seg[0] === "lessons") return "teacher";
+  // 온택트 교실: 교실 생성/종료, 세션 목록·보고서 수정은 teacher; ws-ticket·complete는 access
+  if (seg[0] === "ontact") {
+    if (method === "POST" && seg[1] === "classrooms" && seg.length === 2) return "teacher";
+    if (seg[2] === "close") return "teacher";
+    if (seg[2] === "sessions" && method === "GET") return "teacher";
+    if (method === "PATCH" && seg[1] === "student-sessions") return "teacher";
+    return "access";
+  }
   const last = seg[seg.length - 1];
   const isList = seg.length === 1 && (seg[0] === "sessions" || seg[0] === "recordings");
   if (method === "DELETE") return "teacher";
@@ -48,6 +58,13 @@ async function proxyInner(req: NextRequest, pathParts: string[], method: string)
     return NextResponse.json({ error: "인증이 필요합니다." }, { status: 401 });
   }
 
+  // 프록시가 검증한 실제 역할. 백엔드는 클라이언트가 보낸 role 쿼리 대신
+  // 이 헤더로 권한을 결정한다(권한 상승 방지). teacher는 access의 상위.
+  const verifiedRole: Role =
+    verifyToken("teacher", req.cookies.get(COOKIE_NAME.teacher)?.value)
+      ? "teacher"
+      : "access";
+
   // 원본 pathname에서 /api/proxy 접두사만 제거 — trailing slash를 보존한다.
   // (seg.join("/")는 슬래시를 잃어 FastAPI가 307 리다이렉트를 내고,
   //  그 Location이 http:// 다운그레이드라 undici가 Authorization 헤더를 떨궈 401이 됨)
@@ -57,6 +74,8 @@ async function proxyInner(req: NextRequest, pathParts: string[], method: string)
 
   const headers: Record<string, string> = {};
   if (API_SECRET) headers["Authorization"] = `Bearer ${API_SECRET}`;
+  // 신뢰 경계: 이 헤더는 프록시만 설정한다(클라이언트 헤더는 전달되지 않음).
+  headers["X-Verified-Role"] = verifiedRole;
 
   let body: BodyInit | undefined;
   if (method !== "GET" && method !== "HEAD") {
@@ -85,7 +104,11 @@ async function proxyInner(req: NextRequest, pathParts: string[], method: string)
       if (res.status !== 307 && res.status !== 308) break;
       const loc = res.headers.get("location");
       if (!loc) break;
-      target = new URL(loc, target).toString().replace(/^http:\/\//, "https://");
+      const redirected = new URL(loc, target).toString();
+      // localhost는 https 없음 — 외부 URL(Railway 등)만 강제 업그레이드
+      target = /localhost|127\.0\.0\.1/.test(redirected)
+        ? redirected
+        : redirected.replace(/^http:\/\//, "https://");
     }
     res = res!;
   } catch (e) {
