@@ -174,7 +174,7 @@ function RealtimeSession({ student }: { student: StudentIdentity }) {
 
     try {
       // 1. 세션 생성
-      const sessionRes = await apiFetch(`/sessions/`, {
+      const sessionRes = await apiFetch(`/sessions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ student_name: name, subject: subj }),

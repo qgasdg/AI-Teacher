@@ -118,7 +118,7 @@ async def process_lesson(lesson_id: int, audio_bytes: bytes, subject: str, stude
 
 # --- Endpoints ---
 
-@router.post("/", response_model=LessonResponse)
+@router.post("", response_model=LessonResponse)
 async def create_lesson(
     background_tasks: BackgroundTasks,
     student_name: str = Form(...),
@@ -149,7 +149,7 @@ async def create_lesson(
     return _to_response(lesson)
 
 
-@router.get("/", response_model=List[LessonResponse])
+@router.get("", response_model=List[LessonResponse])
 async def list_lessons(db: AsyncSession = Depends(get_db)):
     """수업 일지 목록 조회 (최신순)."""
     result = await db.execute(select(Lesson).order_by(Lesson.created_at.desc()))

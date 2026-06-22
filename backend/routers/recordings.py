@@ -175,7 +175,7 @@ async def _send_recording_kakao(recording) -> None:
 
 # --- Endpoints ---
 
-@router.post("/", response_model=RecordingResponse)
+@router.post("", response_model=RecordingResponse)
 async def create_recording(
     background_tasks: BackgroundTasks,
     student_name: str = Form(...),
@@ -206,7 +206,7 @@ async def create_recording(
     return _to_response(recording)
 
 
-@router.get("/", response_model=List[RecordingResponse])
+@router.get("", response_model=List[RecordingResponse])
 async def list_recordings(db: AsyncSession = Depends(get_db)):
     """모든 복습 녹음 목록"""
     result = await db.execute(

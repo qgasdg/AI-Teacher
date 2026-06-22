@@ -167,7 +167,7 @@ export default function LessonPage() {
       formData.append("audio", blob, "lesson.webm");
 
       try {
-        const res = await apiFetch("/lessons/", { method: "POST", body: formData });
+        const res = await apiFetch("/lessons", { method: "POST", body: formData });
         if (!res.ok) throw new Error(`서버 오류: ${res.status}`);
         const data: LessonReport = await res.json();
         setLessonId(data.id);

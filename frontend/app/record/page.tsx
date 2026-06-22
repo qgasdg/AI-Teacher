@@ -118,7 +118,7 @@ function RecordForm({ student }: { student: StudentIdentity }) {
     formData.append('audio', audioBlob, 'recording.webm')
 
     try {
-      const res = await apiFetch('/recordings/', { method: 'POST', body: formData })
+      const res = await apiFetch('/recordings', { method: 'POST', body: formData })
       if (!res.ok) throw new Error(`서버 오류: ${res.status}`)
       await res.json()
       setPageState('done')

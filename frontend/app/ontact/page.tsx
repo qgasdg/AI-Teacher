@@ -65,7 +65,7 @@ import {
   AudioTrack,
   useTracks,
 } from "@livekit/components-react";
-import { Track, RoomEvent } from "livekit-client";
+import { Track, RoomEvent, Room } from "livekit-client";
 import type { Editor } from "@tldraw/tldraw";
 import dynamic from "next/dynamic";
 
@@ -121,6 +121,13 @@ function OntactInner() {
   const [roomType, setRoomType] = useState<RoomType>("group");
   const [roomKey, setRoomKey] = useState(0);
   const [roomConnecting, setRoomConnecting] = useState(false);
+
+  // Room 인스턴스를 유지해 방 전환 시 WebRTC PeerConnection 재생성을 방지.
+  const livekitRoomRef = useRef<Room | null>(null);
+  if (livekitRoomRef.current === null) livekitRoomRef.current = new Room();
+  const livekitRoom = livekitRoomRef.current;
+  // 방 전환 중 Disconnected 이벤트가 onLeave를 잘못 호출하지 않도록 구분.
+  const isSwitchingRef = useRef(false);
 
   // 녹음기는 방 전환에도 유지되도록 부모에서 관리
   const chunksRef = useRef<Blob[]>([]);
@@ -219,13 +226,14 @@ function OntactInner() {
     if (!tokenRes.ok) return;
     const { token: newToken, livekit_url } = await tokenRes.json();
     const scrollY = window.scrollY;
+    isSwitchingRef.current = true;
     setRoomConnecting(true);
-    await new Promise((r) => setTimeout(r, 200));
+    // token/serverUrl 변경 → LiveKitRoom이 같은 Room 인스턴스로 connect() 재호출.
+    // key는 StudentRoom(UI 상태 초기화)에만 적용하고 LiveKitRoom에는 쓰지 않는다.
     setToken(newToken);
     setServerUrl(livekit_url);
     setRoomType(newRoomType);
     setRoomKey((k) => k + 1);
-    setRoomConnecting(false);
     requestAnimationFrame(() => window.scrollTo(0, scrollY));
   }, [classroomId, studentName]);
 
@@ -310,20 +318,30 @@ function OntactInner() {
 
   return (
     <LiveKitRoom
-      key={roomKey}
+      room={livekitRoom}
       token={token}
       serverUrl={serverUrl}
       audio={true}
       video={false}
       connect={true}
+      onConnected={() => {
+        isSwitchingRef.current = false;
+        setRoomConnecting(false);
+      }}
+      onError={() => {
+        isSwitchingRef.current = false;
+        setRoomConnecting(false);
+      }}
     >
       <StudentRoom
+        key={roomKey}
         studentName={studentName}
         classroomId={classroomId!}
         sessionId={sessionId}
         roomType={roomType}
         onSwitchRoom={switchRoom}
         onLeave={handleLeave}
+        isSwitchingRef={isSwitchingRef}
         audioCtxRef={audioCtxRef}
         mixDestRef={mixDestRef}
       />
@@ -340,6 +358,7 @@ function StudentRoom({
   roomType,
   onSwitchRoom,
   onLeave,
+  isSwitchingRef,
   audioCtxRef,
   mixDestRef,
 }: {
@@ -349,6 +368,7 @@ function StudentRoom({
   roomType: RoomType;
   onSwitchRoom: (type: RoomType) => void;
   onLeave: () => void;
+  isSwitchingRef: React.RefObject<boolean>;
   audioCtxRef: React.RefObject<AudioContext | null>;
   mixDestRef: React.RefObject<MediaStreamAudioDestinationNode | null>;
 }) {
@@ -429,18 +449,17 @@ function StudentRoom({
   };
 
   // 선생님이 교실을 닫으면 서버가 LiveKit 방을 삭제 → 연결이 끊긴다.
-  // 이때 자동으로 수업 종료 처리 (녹음 업로드 → 완료 화면).
-  // 방 전환 시에는 언마운트 cleanup이 먼저 리스너를 제거하므로 발동하지 않는다.
+  // 방 전환 중(isSwitchingRef=true)에도 Disconnected가 발생하므로 구분해서 처리.
   useEffect(() => {
     const onDisconnected = () => {
-      if (!leaving) {
+      if (!leaving && !isSwitchingRef.current) {
         setLeaving(true);
         onLeave();
       }
     };
     room.on(RoomEvent.Disconnected, onDisconnected);
     return () => { room.off(RoomEvent.Disconnected, onDisconnected); };
-  }, [room, leaving, onLeave]);
+  }, [room, leaving, onLeave, isSwitchingRef]);
 
   const allCameraTracks = useTracks([Track.Source.Camera]);
   const allMicTracks = useTracks([Track.Source.Microphone]);

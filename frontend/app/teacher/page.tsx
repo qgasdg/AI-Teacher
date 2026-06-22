@@ -157,7 +157,7 @@ export default function TeacherDashboard() {
 
   const fetchSessions = async () => {
     try {
-      const res = await apiFetch(`/sessions/`);
+      const res = await apiFetch(`/sessions`);
       if (res.ok) setSessions(await res.json());
     } catch {
       // 조용히 실패
@@ -166,7 +166,7 @@ export default function TeacherDashboard() {
 
   const fetchRecordings = async () => {
     try {
-      const res = await apiFetch(`/recordings/`);
+      const res = await apiFetch(`/recordings`);
       if (res.ok) setRecordings(await res.json());
     } catch {
       // 조용히 실패

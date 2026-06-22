@@ -146,7 +146,7 @@ def _to_response(s: RealtimeSession) -> SessionResponse:
     )
 
 
-@router.post("/", response_model=SessionResponse, dependencies=PROTECTED)
+@router.post("", response_model=SessionResponse, dependencies=PROTECTED)
 async def create_session(
     body: SessionCreate,
     db: AsyncSession = Depends(get_db),
@@ -211,7 +211,7 @@ async def get_session(
     return _to_response(session)
 
 
-@router.get("/", response_model=List[SessionResponse], dependencies=PROTECTED)
+@router.get("", response_model=List[SessionResponse], dependencies=PROTECTED)
 async def list_sessions(db: AsyncSession = Depends(get_db)):
     """모든 세션 목록을 조회합니다. (호출 시점에 stale active 세션을 abandoned로 정리)"""
     await _mark_abandoned_sessions(db)

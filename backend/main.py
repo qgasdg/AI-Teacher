@@ -29,6 +29,7 @@ app = FastAPI(
     description="온택트 교실 AI 선생님 - 실시간 음성 대화",
     version="3.0.0",
     lifespan=lifespan,
+    redirect_slashes=False,
 )
 
 # 브라우저는 Next.js 프록시를 경유하므로 백엔드를 직접 호출하지 않음.
