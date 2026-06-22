@@ -94,12 +94,15 @@ async def create_classroom(body: ClassroomCreate, db: AsyncSession = Depends(get
         await db.refresh(classroom)
         for sid in stale_ids:
             await delete_classroom_rooms(sid)
+        logger.info(f"[교실] 선생님 입장 — 기존 교실 재사용 classroom_id={classroom.id}"
+                    + (f" (폐기 {len(stale_ids)}개)" if stale_ids else ""))
         return _classroom_to_resp(classroom)
 
     classroom = OntactClassroom(title=body.title, status="open")
     db.add(classroom)
     await db.commit()
     await db.refresh(classroom)
+    logger.info(f"[교실] 선생님 입장 — 새 교실 생성 classroom_id={classroom.id}")
     return _classroom_to_resp(classroom)
 
 
@@ -118,12 +121,14 @@ async def ensure_open_classroom(db: AsyncSession = Depends(get_db)):
     )
     classroom = result.scalars().first()
     if classroom:
+        logger.info(f"[교실] 학생 입장 준비 — 기존 교실 사용 classroom_id={classroom.id}")
         return _classroom_to_resp(classroom)
 
     classroom = OntactClassroom(title=None, status="open")
     db.add(classroom)
     await db.commit()
     await db.refresh(classroom)
+    logger.info(f"[교실] 학생 선입장 — 새 교실 생성 classroom_id={classroom.id}")
     return _classroom_to_resp(classroom)
 
 
@@ -163,6 +168,7 @@ async def close_classroom(
     classroom.status = "closed"
     classroom.closed_at = datetime.utcnow()
     await db.commit()
+    logger.info(f"[교실] 종료 — classroom_id={classroom_id}")
     # LiveKit 방(강의실+개인실) 강제 종료 — 남은 학생이 유령 방에 갇히지 않도록
     await delete_classroom_rooms(classroom_id)
     # 안전망: 살아있는 학생 탭은 Disconnected로 스스로 종료(processing)하지만,
@@ -185,10 +191,18 @@ async def _abandon_stale_sessions(classroom_id: int, grace_seconds: int = 20):
             .where(OntactStudentSession.classroom_id == classroom_id)
             .where(OntactStudentSession.status == "active")
         )
-        for s in result.scalars().all():
+        stale = result.scalars().all()
+        for s in stale:
+            logger.warning(
+                f"[세션] abandoned — session_id={s.id} "
+                f"student={s.student_name!r} classroom_id={classroom_id} "
+                f"(complete 미수신: 탭 닫힘·네트워크 이탈·방전환 중 종료 추정)"
+            )
             s.status = "abandoned"
             s.left_at = s.left_at or datetime.utcnow()
         await db.commit()
+        if stale:
+            logger.info(f"[교실] abandoned 처리 완료 — classroom_id={classroom_id} 총 {len(stale)}명")
 
 
 @router.get(
@@ -320,6 +334,15 @@ async def get_livekit_token(
             db.add(student_session)
             await db.commit()
             await db.refresh(student_session)
+            logger.info(
+                f"[세션] 신규 입장 — session_id={student_session.id} "
+                f"student={name!r} classroom_id={classroom_id}"
+            )
+        else:
+            logger.info(
+                f"[세션] 재입장(세션 재사용) — session_id={student_session.id} "
+                f"student={name!r} classroom_id={classroom_id}"
+            )
         session_id = student_session.id
 
     token = make_token(
@@ -353,6 +376,11 @@ async def complete_session(
     audio_bytes = await audio.read()
     await db.commit()
 
+    audio_kb = len(audio_bytes) // 1024
+    logger.info(
+        f"[세션] complete 수신 — session_id={session_id} "
+        f"student={session.student_name!r} audio={audio_kb}KB → STT·보고서 시작"
+    )
     background_tasks.add_task(_process_session, session_id, audio_bytes)
     return {"ok": True, "session_id": session_id}
 
@@ -418,9 +446,10 @@ async def _process_session(session_id: int, audio_bytes: bytes):
             )
             session.report = report
             session.status = "completed"
+            logger.info(f"[세션] 보고서 완료 — session_id={session_id} student={session.student_name!r}")
 
         except Exception as e:
-            logger.error(f"온택트 세션 처리 실패 (id={session_id}): {e}")
+            logger.error(f"[세션] STT·보고서 실패 — session_id={session_id} student={session.student_name!r}: {e}")
             session.status = "failed"
 
         await db.commit()
