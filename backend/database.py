@@ -80,7 +80,4 @@ async def init_db():
             if attempt < 4:
                 await asyncio.sleep(wait)
 
-    import logging
-    logging.getLogger(__name__).error(
-        f"DB 초기화 최종 실패 — 앱은 계속 기동, 요청 시 재연결 시도: {last_err}"
-    )
+    raise RuntimeError(f"DB 초기화 최종 실패: {last_err}") from last_err
